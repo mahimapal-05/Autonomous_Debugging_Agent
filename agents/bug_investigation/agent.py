@@ -1,7 +1,7 @@
 import json
 import re
 from typing import Dict, Any
-from utils.llm import call_gemini, is_gemini_available
+from utils.llm import call_llm, is_llm_available
 from agents.bug_investigation.prompts import BUG_INVESTIGATION_SYSTEM_PROMPT, BUG_INVESTIGATION_USER_PROMPT
 
 def fallback_bug_investigation(source_code: str, error_log: str, code_analysis: Dict[str, Any]) -> Dict[str, Any]:
@@ -69,13 +69,13 @@ def investigate_bug_agent(state: Dict[str, Any]) -> Dict[str, Any]:
 
     code_analysis_summary = code_analysis.get("summary", "Syntax valid")
 
-    if is_gemini_available():
+    if is_llm_available():
         user_prompt = BUG_INVESTIGATION_USER_PROMPT.format(
             source_code=source_code if source_code else f"Project snippets: {json.dumps(code_analysis.get('snippets', {}), indent=2)}",
             error_log=error_log,
             code_analysis_summary=code_analysis_summary
         )
-        raw_response = call_gemini(user_prompt, BUG_INVESTIGATION_SYSTEM_PROMPT)
+        raw_response = call_llm(user_prompt, BUG_INVESTIGATION_SYSTEM_PROMPT)
         
         if raw_response:
             try:

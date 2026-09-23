@@ -1,10 +1,18 @@
 # Autonomous Software Debugging Agent (Multi-Language & ZIP Project Support)
 
-An agentic AI system built in Python using **LangGraph**, **Streamlit**, **Language Adapters (Python & Java)**, **PyTest**, **Maven/Gradle**, **SQLite**, and **Google Gemini API** that autonomously analyzes buggy single-file code or complete software projects, investigates stack traces/compilation errors, identifies root causes, generates targeted patches, executes automated unit test suites in an isolated sandbox, and verifies solutions.
+An agentic AI system built in Python using **LangGraph**, **Streamlit**, **Groq / Google Gemini APIs**, **Language Adapters (Python & Java)**, **PyTest**, **Maven/Gradle**, and **SQLite** that autonomously analyzes buggy single-file code or complete software projects, investigates stack traces/compilation errors, identifies root causes, generates targeted patches, executes automated unit test suites in an isolated sandbox, and verifies solutions.
 
 ---
 
-## 1. Supported Languages & Input Modes
+## 1. Supported LLM Engines & Providers
+
+- **Groq (Recommended - Ultra Low Latency)**: `llama-3.3-70b-versatile`, `llama-3.1-70b-versatile`, `llama-3.1-8b-instant`, `mixtral-8x7b-32768`, `deepseek-r1-distill-llama-70b`
+- **Google Gemini**: `gemini-2.5-flash`, `gemini-1.5-flash`, `gemini-1.5-pro`
+- **Mock Mode / Rule-Based Fallback**: Built-in AST analyzer and pattern recognition engine allowing full offline usage without API keys.
+
+---
+
+## 2. Supported Languages & Input Modes
 
 ### Supported Languages
 - **Python**: `.py`, `requirements.txt`, `pyproject.toml`, `setup.py` (via `pytest` runner or entry file fallback)
@@ -16,7 +24,7 @@ An agentic AI system built in Python using **LangGraph**, **Streamlit**, **Langu
 
 ---
 
-## 2. High-Level Architecture & Workflow
+## 3. High-Level Architecture & Workflow
 
 ```
 User
@@ -36,10 +44,10 @@ Language Adapter (PythonAdapter / JavaAdapter)
   ▼
 LangGraph Orchestration Engine (7-Agent Workflow)
   ├── 1. Code Analysis Agent
-  ├── 2. Bug Investigation Agent
-  ├── 3. Root Cause Agent
-  ├── 4. Fix Generation Agent
-  ├── 5. Testing Agent (Executes Adapter build/tests)
+  ├── 2. Bug Investigation Agent (Groq / Gemini / Rule-Based)
+  ├── 3. Root Cause Agent (Groq / Gemini / Rule-Based)
+  ├── 4. Fix Generation Agent (Groq / Gemini / Rule-Based)
+  ├── 5. Testing Agent (Executes Adapter build/tests in sandbox)
   ├── 6. Verification Agent (Evaluates test/build results)
   └── 7. Supervisor Agent (Retry loop control & report compiling)
   │
@@ -49,7 +57,7 @@ Final Report & SQLite Session History
 
 ---
 
-## 3. The 7 Specialized Agents
+## 4. The 7 Specialized Agents
 
 | # | Agent Name | Location | Responsibility |
 |---|------------|----------|----------------|
@@ -63,86 +71,18 @@ Final Report & SQLite Session History
 
 ---
 
-## 4. Technology Stack
+## 5. Technology Stack
 - **Languages Supported**: Python 3.10+, Java (JDK 11+)
 - **Orchestration**: LangGraph, LangChain Core
-- **LLM Engine**: Google Gemini API (`google-genai` / `gemini-2.5-flash`)
+- **LLM Engines**: Groq SDK (`groq`), Google GenAI (`google-genai` / `google-generativeai`)
 - **Frontend UI**: Streamlit
 - **Build & Test Tools**: PyTest, Maven (`mvn`/`mvnw`), Gradle (`gradle`/`gradlew`), `javac`
 - **Database**: SQLite3 (`debug_history.db`)
-- **Environment**: `python-dotenv`
+- **Containerization**: Docker & Render Blueprint (`render.yaml`)
 
 ---
 
-## 5. Project Directory Structure
-
-```
-Autonomous_Debugging_Agent/
-├── .env.example                # API key template
-├── .gitignore                  # Git exclusion rules
-├── README.md                   # Main documentation
-├── requirements.txt            # Python dependencies
-├── demo_examples.py            # Pre-packaged demo presets (Single file & ZIP projects)
-├── utils/
-│   ├── __init__.py
-│   ├── llm.py                  # Gemini API client & Mock fallback logic
-│   └── workspace.py            # Safe ZIP extraction & temporary workspace management
-├── language_adapters/          # Language Adapter System
-│   ├── __init__.py
-│   ├── base_adapter.py         # Abstract Base Language Adapter interface
-│   ├── detector.py             # Automatic language & build system detector
-│   ├── python/
-│   │   ├── __init__.py
-│   │   └── adapter.py          # Python language adapter
-│   └── java/
-│       ├── __init__.py
-│       └── adapter.py          # Java language adapter (Maven, Gradle, javac)
-├── database/
-│   ├── __init__.py
-│   ├── database.py             # SQLite persistence helpers
-│   └── debug_history.db        # Session history database
-├── orchestration/
-│   ├── __init__.py
-│   ├── state.py                # Shared DebuggingState schema
-│   └── graph.py                # StateGraph compiled workflow
-├── agents/                     # 7 Specialized Agents
-│   ├── supervisor/
-│   ├── code_analysis/
-│   ├── bug_investigation/
-│   ├── root_cause/
-│   ├── fix_generation/
-│   ├── testing/
-│   └── verification/
-└── frontend/
-    └── streamlit_app.py        # Streamlit web dashboard UI
-```
-
----
-
-## 6. Example Project Structure for ZIP Upload
-
-### Python Project ZIP Example
-```
-python_bug_project.zip
-├── main.py                     # Source code containing bug
-├── test_main.py                # PyTest suite
-└── requirements.txt            # Project dependencies
-```
-
-### Java Maven Project ZIP Example
-```
-java_bug_project.zip
-├── pom.xml                     # Maven project descriptor
-└── src/
-    ├── main/java/com/example/
-    │   └── UserService.java    # Java class containing bug
-    └── test/java/com/example/
-        └── UserServiceTest.java# Java test suite
-```
-
----
-
-## 7. Installation & Setup
+## 6. Installation & Local Setup
 
 1. **Clone or Open Project**:
    ```bash
@@ -154,6 +94,8 @@ java_bug_project.zip
    python -m venv venv
    # On Windows PowerShell:
    .\venv\Scripts\Activate.ps1
+   # On macOS/Linux:
+   source venv/bin/activate
    ```
 
 3. **Install Dependencies**:
@@ -162,30 +104,57 @@ java_bug_project.zip
    ```
 
 4. **Configure Environment Variables**:
-   Copy `.env.example` to `.env` and add your Gemini API Key:
+   Copy `.env.example` to `.env` and add your API Keys:
    ```env
+   LLM_PROVIDER=groq
+   GROQ_API_KEY=gsk_your_groq_api_key_here
+   GROQ_MODEL=llama-3.3-70b-versatile
+
+   # Optional Gemini backup
    GEMINI_API_KEY=your_gemini_api_key_here
+   GEMINI_MODEL=gemini-2.5-flash
    ```
-   > *Note: If no API key is provided, the system automatically runs in **Mock Mode**, using intelligent fallback analyzers so the app can be demonstrated immediately without external API dependency.*
+   > *Note: If no API key is provided, the system automatically runs in **Mock Mode**.*
+
+5. **Run Locally**:
+   ```bash
+   python -m streamlit run frontend/streamlit_app.py
+   ```
+   Open your browser to `http://localhost:8501`.
 
 ---
 
-## 8. How to Run the Application
+## 7. Deploying to Render (Step-by-Step)
 
-Launch the Streamlit UI dashboard:
+### Option 1: Automatic Blueprint Deployment (Recommended)
+1. Push this repository to GitHub or GitLab.
+2. In the [Render Dashboard](https://dashboard.render.com), click **New +** → **Blueprint**.
+3. Connect your repository. Render will automatically read [`render.yaml`](file:///c:/Users/swaro/Desktop/Autonomous_Debugging_Agent-main/render.yaml) and configure the Docker Web Service.
+4. Under Environment Variables, provide your `GROQ_API_KEY` (and optional `GEMINI_API_KEY`).
+5. Click **Apply**. Render will build the container with Python 3.11, OpenJDK 17, and Maven pre-installed.
+
+### Option 2: Manual Web Service on Render
+1. In Render Dashboard, click **New +** → **Web Service**.
+2. Connect your Git repository.
+3. Select **Docker** as the Environment.
+4. Set Region to your preferred location (e.g. `Oregon (US West)` or `Frankfurt`).
+5. Add Environment Variables:
+   - `GROQ_API_KEY`: `gsk_...`
+   - `LLM_PROVIDER`: `groq`
+   - `GROQ_MODEL`: `llama-3.3-70b-versatile`
+6. Click **Create Web Service**.
+
+---
+
+## 8. Docker Build & Run (Self-Hosted)
+
 ```bash
-streamlit run frontend/streamlit_app.py
+# Build Docker Image
+docker build -t autonomous-debugging-agent .
+
+# Run Container on Port 8501 with Groq API Key
+docker run -p 8501:8501 \
+  -e GROQ_API_KEY="gsk_your_key_here" \
+  -e LLM_PROVIDER="groq" \
+  autonomous-debugging-agent
 ```
-Open your browser to `http://localhost:8501`.
-
----
-
-## 9. Troubleshooting Guide
-
-| Issue / Symptom | Possible Cause | Resolution |
-|-----------------|----------------|------------|
-| **Python not installed** | Python missing from system `PATH`. | Install Python 3.10+ and add to `PATH`. |
-| **Java not installed** | JDK missing for Java project debugging. | Install Java JDK 11+ and verify `javac -version` on terminal. |
-| **Maven / Gradle not found** | `mvn` or `gradle` binary missing from system `PATH`. | Include project wrappers (`mvnw`/`mvnw.cmd` or `gradlew`/`gradlew.bat`) inside your ZIP archive or install Maven/Gradle CLI. |
-| **PyTest not installed** | `pytest` missing from Python environment. | Run `pip install pytest`. |
-| **Gemini API unavailable** | Key missing or quota exceeded. | The system gracefully switches to **Mock Mode**; no app crash occurs. |

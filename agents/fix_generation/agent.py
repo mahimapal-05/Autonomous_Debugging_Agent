@@ -2,7 +2,7 @@ import json
 import re
 import os
 from typing import Dict, Any, List
-from utils.llm import call_gemini, is_gemini_available
+from utils.llm import call_llm, is_llm_available
 from agents.fix_generation.prompts import FIX_GENERATION_SYSTEM_PROMPT, FIX_GENERATION_USER_PROMPT
 
 def fallback_fix_generation(
@@ -209,14 +209,14 @@ def generate_fix_agent(state: Dict[str, Any]) -> Dict[str, Any]:
     if verification_result and not verification_result.get("verified", False):
         feedback = f"Previous fix failed verification: {verification_result.get('reason', 'Tests failed')}"
 
-    if is_gemini_available():
+    if is_llm_available():
         user_prompt = FIX_GENERATION_USER_PROMPT.format(
             source_code=source_code if source_code else f"Project snippets: {json.dumps(code_analysis.get('snippets', {}), indent=2)}",
             root_cause=json.dumps(root_cause, indent=2),
             bug_investigation=json.dumps(bug_investigation, indent=2),
             feedback=feedback if feedback else "None (First attempt)"
         )
-        raw_response = call_gemini(user_prompt, FIX_GENERATION_SYSTEM_PROMPT)
+        raw_response = call_llm(user_prompt, FIX_GENERATION_SYSTEM_PROMPT)
 
         if raw_response:
             try:

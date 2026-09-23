@@ -1,6 +1,6 @@
 import json
 from typing import Dict, Any
-from utils.llm import call_gemini, is_gemini_available
+from utils.llm import call_llm, is_llm_available
 from agents.verification.prompts import VERIFICATION_SYSTEM_PROMPT, VERIFICATION_USER_PROMPT
 
 def evaluate_verification_agent(state: Dict[str, Any]) -> Dict[str, Any]:
@@ -28,14 +28,14 @@ def evaluate_verification_agent(state: Dict[str, Any]) -> Dict[str, Any]:
         default_reason = f"Execution failed ({failed_count} test/build error(s)). Output: {test_results.get('output', 'Unknown error')[:200]}"
 
     # LLM reasoning enhancement if available
-    if is_gemini_available():
+    if is_llm_available():
         user_prompt = VERIFICATION_USER_PROMPT.format(
             error_log=error_log,
             root_cause=json.dumps(root_cause, indent=2),
             candidate_fix=json.dumps(candidate_fix, indent=2),
             test_results=json.dumps(test_results, indent=2)
         )
-        raw_response = call_gemini(user_prompt, VERIFICATION_SYSTEM_PROMPT)
+        raw_response = call_llm(user_prompt, VERIFICATION_SYSTEM_PROMPT)
 
         if raw_response:
             try:
