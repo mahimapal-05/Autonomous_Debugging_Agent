@@ -17,6 +17,9 @@ from utils.llm import (
     is_gemini_available,
     get_groq_api_key,
     get_gemini_api_key,
+    set_groq_api_key,
+    set_gemini_api_key,
+    set_llm_provider,
     DEFAULT_GROQ_MODEL,
     DEFAULT_GEMINI_MODEL,
     get_preferred_provider
@@ -105,7 +108,7 @@ with st.sidebar:
             placeholder="gsk_..."
         )
         if input_groq_key:
-            os.environ["GROQ_API_KEY"] = input_groq_key.strip()
+            set_groq_api_key(input_groq_key.strip())
 
         input_gemini_key = st.text_input(
             "Gemini API Key:",
@@ -114,10 +117,10 @@ with st.sidebar:
             placeholder="AIza..."
         )
         if input_gemini_key:
-            os.environ["GEMINI_API_KEY"] = input_gemini_key.strip()
+            set_gemini_api_key(input_gemini_key.strip())
 
         if provider_choice.startswith("Groq"):
-            os.environ["LLM_PROVIDER"] = "groq"
+            set_llm_provider("groq")
             groq_model_choice = st.selectbox(
                 "Groq Model:",
                 options=[
@@ -131,13 +134,15 @@ with st.sidebar:
             )
             os.environ["GROQ_MODEL"] = groq_model_choice
         elif provider_choice.startswith("Gemini"):
-            os.environ["LLM_PROVIDER"] = "gemini"
+            set_llm_provider("gemini")
             gemini_model_choice = st.selectbox(
                 "Gemini Model:",
                 options=["gemini-2.5-flash", "gemini-1.5-flash", "gemini-1.5-pro"],
                 index=0
             )
             os.environ["GEMINI_MODEL"] = gemini_model_choice
+        elif provider_choice == "Mock Mode":
+            set_llm_provider("mock")
 
     st.divider()
     st.markdown("### 📚 Demo Presets")

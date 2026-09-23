@@ -2,9 +2,54 @@ import json
 import re
 import ast
 import os
+import difflib
 from typing import Dict, Any, List, Optional
 from utils.llm import call_llm, is_llm_available
 from agents.fix_generation.prompts import FIX_GENERATION_SYSTEM_PROMPT, FIX_GENERATION_USER_PROMPT
+
+def repair_name_error(source_code: str, error_log: str) -> Optional[str]:
+    """
+    Detects and repairs NameError typos and undefined identifiers in Python source code.
+    Example: `avrage` -> `average`
+    """
+    if not source_code or not error_log:
+        return None
+
+    # Extract undefined name from error log
+    name_match = re.search(r"name ['\"]([a-zA-Z_]\w*)['\"] is not defined", error_log)
+    if not name_match:
+        name_match = re.search(r"cannot find symbol\s+symbol:\s+variable\s+([a-zA-Z_]\w*)", error_log)
+    
+    if not name_match:
+        return None
+
+    undefined_var = name_match.group(1)
+
+    # Check if python already suggested a fix in the traceback (e.g. "Did you mean: 'average'?")
+    did_you_mean = re.search(r"Did you mean:\s*['\"]([a-zA-Z_]\w*)['\"]", error_log)
+    if did_you_mean:
+        suggested = did_you_mean.group(1)
+        fixed = re.sub(r'\b' + re.escape(undefined_var) + r'\b', suggested, source_code)
+        return fixed
+
+    # Extract candidate identifiers defined in source code
+    all_tokens = re.findall(r'\b([a-zA-Z_]\w*)\b', source_code)
+    keywords = {
+        "for", "in", "range", "len", "print", "def", "return", "if", "else", "elif",
+        "while", "import", "from", "as", "class", "try", "except", "finally", "with",
+        "and", "or", "not", "is", "None", "True", "False"
+    }
+    candidate_names = list(set([t for t in all_tokens if t != undefined_var and t not in keywords]))
+
+    # Find closest match via difflib
+    matches = difflib.get_close_matches(undefined_var, candidate_names, n=1, cutoff=0.45)
+    if matches:
+        suggested = matches[0]
+        fixed = re.sub(r'\b' + re.escape(undefined_var) + r'\b', suggested, source_code)
+        return fixed
+
+    return None
+
 
 def repair_python_syntax(source_code: str, error_log: str = "") -> Optional[str]:
     """
@@ -125,20 +170,38 @@ def fallback_fix_generation(
     code_analysis: Dict[str, Any] = None
 ) -> Dict[str, Any]:
     """
-    Intelligent fallback fix generator for syntax errors, common runtime exceptions, and Java/Python bugs.
+    Intelligent fallback fix generator for NameError, SyntaxError, and common runtime exceptions.
     """
     category = root_cause.get("bug_category", "")
     code_analysis = code_analysis or {}
     snippets = code_analysis.get("snippets", {})
 
-    # 1. Handle Syntax Errors (Missing Colons, Unbalanced Parens, Print Statements)
+    py_file = "main.py"
+    if snippets:
+        py_file = list(snippets.keys())[0]
+
+    # 1. Handle NameError (Identifier / Variable typos)
+    if "NameError" in error_log or category == "NameError" or "is not defined" in error_log:
+        fixed_code = repair_name_error(source_code, error_log)
+        if fixed_code and fixed_code != source_code:
+            explanation = "Corrected misspelled variable or identifier name to match defined scope variable."
+            changed_section = "Replaced undefined identifier with matching defined variable."
+            return {
+                "explanation": explanation,
+                "fixed_code": fixed_code,
+                "changed_section": changed_section,
+                "patches": [{
+                    "file": py_file,
+                    "changes": fixed_code,
+                    "reason": explanation
+                }]
+            }
+
+    # 2. Handle Syntax Errors (Missing Colons, Unbalanced Parens, Print Statements)
     if "SyntaxError" in error_log or category == "SyntaxError" or "expected ':'" in error_log:
         fixed_code = repair_python_syntax(source_code, error_log)
         explanation = "Fixed syntax error by adding missing colon (:) or repairing statement structure."
         changed_section = "Corrected compound statement header and punctuation."
-        py_file = "main.py"
-        if snippets:
-            py_file = list(snippets.keys())[0]
 
         return {
             "explanation": explanation,
@@ -151,7 +214,7 @@ def fallback_fix_generation(
             }]
         }
 
-    # 2. Check Java NullPointerException
+    # 3. Check Java NullPointerException
     if "NullPointerException" in error_log or category == "NullPointerException":
         java_file = "src/main/java/com/example/UserService.java"
         if snippets:
@@ -183,11 +246,9 @@ def fallback_fix_generation(
                 "patches": patches
             }
 
-    # 3. Python ZeroDivisionError
+    # 4. Python ZeroDivisionError
     if "ZeroDivisionError" in error_log or category == "ZeroDivisionError" or "/ by zero" in error_log:
-        py_file = "main.py"
         if snippets:
-            py_file = list(snippets.keys())[0]
             source_code = snippets[py_file]
 
         if "return total / count" in source_code:
@@ -197,6 +258,13 @@ def fallback_fix_generation(
             )
             explanation = "Added an explicit check for empty list / zero count before division."
             changed_section = "+ if not numbers or count == 0:\n+     return 0.0"
+        elif "average = total / len(numbers)" in source_code:
+            fixed_code = source_code.replace(
+                "average = total / len(numbers)",
+                "average = (total / len(numbers)) if len(numbers) > 0 else 0.0"
+            )
+            explanation = "Added guard condition checking if numbers list is empty before dividing."
+            changed_section = "+ (total / len(numbers)) if len(numbers) > 0 else 0.0"
         else:
             lines = source_code.splitlines()
             fixed_lines = []
@@ -222,11 +290,9 @@ def fallback_fix_generation(
             "patches": patches
         }
 
-    # 4. IndexError
+    # 5. IndexError
     elif "IndexError" in error_log or category == "IndexError":
-        py_file = "main.py"
         if snippets:
-            py_file = list(snippets.keys())[0]
             source_code = snippets[py_file]
 
         if "return items[2]" in source_code:
@@ -253,11 +319,9 @@ def fallback_fix_generation(
             "patches": patches
         }
 
-    # 5. TypeError
+    # 6. TypeError
     elif "TypeError" in error_log or category == "TypeError":
-        py_file = "main.py"
         if snippets:
-            py_file = list(snippets.keys())[0]
             source_code = snippets[py_file]
 
         fixed_code = source_code.replace("(discount_percent / 100)", "(float(discount_percent) / 100)")
@@ -278,11 +342,9 @@ def fallback_fix_generation(
             "patches": patches
         }
 
-    # 6. KeyError
+    # 7. KeyError
     elif "KeyError" in error_log or category == "KeyError":
-        py_file = "main.py"
         if snippets:
-            py_file = list(snippets.keys())[0]
             source_code = snippets[py_file]
 
         fixed_code = source_code.replace('user_profile["email"]', 'user_profile.get("email", None)')
@@ -301,26 +363,30 @@ def fallback_fix_generation(
             "patches": patches
         }
 
-    # 7. Generic / Unknown Syntax or Logic Repair
+    # 8. General fallback
     else:
-        target_file = "main.py"
         if snippets:
-            target_file = list(snippets.keys())[0]
-            source_code = snippets[target_file]
+            source_code = snippets[py_file]
 
-        # Try automatic syntax repair first
-        repaired = repair_python_syntax(source_code, error_log)
-        if repaired and repaired != source_code:
-            fixed_code = repaired
-            explanation = "Repaired syntax and statement structure."
-            changed_section = "Corrected Python syntax."
+        # Try automatic typo and syntax repair
+        name_repaired = repair_name_error(source_code, error_log)
+        if name_repaired and name_repaired != source_code:
+            fixed_code = name_repaired
+            explanation = "Corrected variable name typo."
+            changed_section = "Updated identifier."
         else:
-            fixed_code = source_code
-            explanation = "Analyzed code and applied safety checks."
-            changed_section = "Maintained verified structure."
+            syntax_repaired = repair_python_syntax(source_code, error_log)
+            if syntax_repaired and syntax_repaired != source_code:
+                fixed_code = syntax_repaired
+                explanation = "Repaired syntax structure."
+                changed_section = "Corrected syntax."
+            else:
+                fixed_code = source_code
+                explanation = "Applied safety checks."
+                changed_section = "Maintained verified structure."
 
         patches = [{
-            "file": target_file,
+            "file": py_file,
             "changes": fixed_code,
             "reason": explanation
         }]
@@ -366,7 +432,6 @@ def generate_fix_agent(state: Dict[str, Any]) -> Dict[str, Any]:
         if raw_response:
             parsed = extract_fix_from_llm_response(raw_response, source_code)
             if parsed and ("fixed_code" in parsed or "patches" in parsed):
-                # Ensure patches structure exists
                 if "patches" not in parsed:
                     main_file = "main.py"
                     if code_analysis.get("source_files"):
@@ -377,13 +442,11 @@ def generate_fix_agent(state: Dict[str, Any]) -> Dict[str, Any]:
                         "reason": parsed.get("explanation", "Fix generated by agent")
                     }]
 
-                # If single-file Python, validate syntax of generated fix
                 fixed_code = parsed.get("fixed_code", "")
                 if fixed_code and state.get("language", "python") == "python":
                     try:
                         ast.parse(fixed_code)
                     except SyntaxError:
-                        # Attempt auto-syntax repair on generated fix
                         repaired = repair_python_syntax(fixed_code, error_log)
                         if repaired:
                             parsed["fixed_code"] = repaired

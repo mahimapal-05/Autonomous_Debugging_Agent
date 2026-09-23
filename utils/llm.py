@@ -9,17 +9,41 @@ load_dotenv()
 
 logger = logging.getLogger("LLM_Utility")
 
+# Global in-memory overrides for live UI session persistence
+_IN_MEMORY_CONFIG = {
+    "groq_api_key": "",
+    "gemini_api_key": "",
+    "groq_model": "",
+    "gemini_model": "",
+    "llm_provider": ""
+}
+
 # Default Models
-DEFAULT_GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
-DEFAULT_GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+DEFAULT_GROQ_MODEL = "llama-3.3-70b-versatile"
+DEFAULT_GEMINI_MODEL = "gemini-2.5-flash"
+
+def set_groq_api_key(key: str):
+    """Set Groq API key in memory and environment."""
+    _IN_MEMORY_CONFIG["groq_api_key"] = key.strip()
+    os.environ["GROQ_API_KEY"] = key.strip()
+
+def set_gemini_api_key(key: str):
+    """Set Gemini API key in memory and environment."""
+    _IN_MEMORY_CONFIG["gemini_api_key"] = key.strip()
+    os.environ["GEMINI_API_KEY"] = key.strip()
+
+def set_llm_provider(provider: str):
+    """Set preferred LLM provider."""
+    _IN_MEMORY_CONFIG["llm_provider"] = provider.strip().lower()
+    os.environ["LLM_PROVIDER"] = provider.strip().lower()
 
 def get_groq_api_key() -> str:
-    """Retrieve Groq API Key from environment or override."""
-    return os.getenv("GROQ_API_KEY", "").strip()
+    """Retrieve Groq API Key from memory or environment."""
+    return _IN_MEMORY_CONFIG["groq_api_key"] or os.getenv("GROQ_API_KEY", "").strip()
 
 def get_gemini_api_key() -> str:
-    """Retrieve Gemini API Key from environment or override."""
-    return os.getenv("GEMINI_API_KEY", "").strip()
+    """Retrieve Gemini API Key from memory or environment."""
+    return _IN_MEMORY_CONFIG["gemini_api_key"] or os.getenv("GEMINI_API_KEY", "").strip()
 
 # Backwards compatible alias
 get_api_key = get_gemini_api_key
@@ -43,8 +67,8 @@ def is_llm_available(provider: Optional[str] = None) -> bool:
     return is_groq_available() or is_gemini_available()
 
 def get_preferred_provider() -> str:
-    """Determine the default active provider based on environment variables."""
-    explicit_provider = os.getenv("LLM_PROVIDER", "").strip().lower()
+    """Determine the default active provider."""
+    explicit_provider = _IN_MEMORY_CONFIG["llm_provider"] or os.getenv("LLM_PROVIDER", "").strip().lower()
     if explicit_provider in ["groq", "gemini"]:
         return explicit_provider
     if is_groq_available():
@@ -62,7 +86,7 @@ def call_groq(prompt: str, system_instruction: str = "", model: Optional[str] = 
         logger.info("GROQ_API_KEY missing or invalid.")
         return None
 
-    model_name = model or DEFAULT_GROQ_MODEL
+    model_name = model or os.getenv("GROQ_MODEL") or DEFAULT_GROQ_MODEL
     try:
         from groq import Groq
         client = Groq(api_key=key)
@@ -75,7 +99,7 @@ def call_groq(prompt: str, system_instruction: str = "", model: Optional[str] = 
         response = client.chat.completions.create(
             messages=messages,
             model=model_name,
-            temperature=0.2,
+            temperature=0.1,
         )
         return response.choices[0].message.content
     except Exception as e:
@@ -91,7 +115,7 @@ def call_gemini(prompt: str, system_instruction: str = "", model: Optional[str] 
         logger.info("GEMINI_API_KEY missing or invalid.")
         return None
 
-    model_name = model or DEFAULT_GEMINI_MODEL
+    model_name = model or os.getenv("GEMINI_MODEL") or DEFAULT_GEMINI_MODEL
     try:
         # Try google.genai
         try:
