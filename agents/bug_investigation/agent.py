@@ -32,7 +32,13 @@ def fallback_bug_investigation(source_code: str, error_log: str, code_analysis: 
             suspicious_snippet = lines[int(line_num) - 1].strip()
 
     reason = "Error detected in stack trace."
-    if "NullPointerException" in error_log:
+    if "SyntaxError" in error_log or "expected ':'" in error_log:
+        reason = "Python SyntaxError: Invalid statement syntax, missing punctuation (such as trailing colon ':'), or malformed expression."
+    elif "IndentationError" in error_log:
+        reason = "Python IndentationError: Inconsistent leading indentation or unexpected indentation level."
+    elif "NameError" in error_log:
+        reason = "Python NameError: Referenced variable or function name is not defined in current scope."
+    elif "NullPointerException" in error_log:
         reason = "NullPointerException occurs when attempting to call a method or access a field on an uninitialized (null) object reference."
     elif "ZeroDivisionError" in error_log or "/ by zero" in error_log:
         reason = "Division by zero occurs when denominator evaluates to 0 (e.g., empty collection or zero variable)."

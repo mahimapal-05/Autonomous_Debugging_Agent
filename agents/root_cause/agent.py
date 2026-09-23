@@ -8,7 +8,22 @@ def fallback_root_cause(error_log: str, bug_investigation: Dict[str, Any]) -> Di
     Fallback root cause analyzer when Gemini LLM is unavailable.
     """
     category = "RuntimeError"
-    if "NullPointerException" in error_log:
+    if "SyntaxError" in error_log or "expected ':'" in error_log:
+        category = "SyntaxError"
+        cause = "Python statement syntax is invalid; a required token such as a trailing colon (:) is missing after a compound statement header."
+        explanation = "In Python, header statements such as `for`, `if`, `while`, `def`, and `class` must conclude with a colon (':') preceding an indented block."
+        strategy = "Add missing colon (:) to the end of the compound statement line and verify block indentation."
+    elif "IndentationError" in error_log:
+        category = "IndentationError"
+        cause = "Inconsistent indentation tabs or spaces encountered in code block."
+        explanation = "Python relies strictly on uniform indentation to delimit statement blocks."
+        strategy = "Re-indent the code uniformly using 4 spaces per block level."
+    elif "NameError" in error_log:
+        category = "NameError"
+        cause = "Variable, function, or symbol name referenced before assignment or declaration."
+        explanation = "A symbol was accessed that does not exist in local or global namespaces."
+        strategy = "Declare and initialize the variable or check spelling of the identifier."
+    elif "NullPointerException" in error_log:
         category = "NullPointerException"
         cause = "The code attempts to invoke a method or dereference an attribute on a null object reference."
         explanation = "A variable or method parameter was not properly initialized or validated before accessing its methods/properties."
