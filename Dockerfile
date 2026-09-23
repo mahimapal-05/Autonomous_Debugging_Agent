@@ -1,16 +1,23 @@
 FROM python:3.11-slim
 
-# Install system dependencies, OpenJDK 17 and Maven for Java debugging sandbox
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    openjdk-17-jdk \
-    maven \
-    curl \
-    git \
-    build-essential \
+# Prevent interactive prompts during package installation
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Fix Debian-slim missing man pages dir and install Java JDK, Maven, Git, and build tools
+RUN mkdir -p /usr/share/man/man1 /usr/share/man/man2 /usr/share/man/man7 \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends \
+       default-jdk-headless \
+       maven \
+       curl \
+       git \
+       gcc \
+       python3-dev \
+    && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
 # Set Java environment variables
-ENV JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
+ENV JAVA_HOME=/usr/lib/jvm/default-java
 ENV PATH="${JAVA_HOME}/bin:${PATH}"
 
 WORKDIR /app
