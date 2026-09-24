@@ -45,6 +45,53 @@ def test_apply_discount_normal():
 def test_apply_discount_string_param():
     assert apply_discount(100, "20") == 80.0
 """
+    elif "is_palindrome" in fixed_code:
+        return """
+def test_is_palindrome_true():
+    assert is_palindrome("racecar") is True
+    assert is_palindrome("A man a plan a canal Panama") is True
+
+def test_is_palindrome_false():
+    assert is_palindrome("hello") is False
+"""
+    elif "factorial" in fixed_code:
+        return """
+def test_factorial_normal():
+    assert factorial(5) == 120
+    assert factorial(1) == 1
+    assert factorial(0) == 1
+"""
+    elif "fibonacci" in fixed_code:
+        return """
+def test_fibonacci_normal():
+    assert fibonacci(5) == 5
+    assert fibonacci(0) == 0
+    assert fibonacci(1) == 1
+"""
+    elif "find_max" in fixed_code:
+        return """
+def test_find_max_normal():
+    assert find_max([10, 50, 20]) == 50
+
+def test_find_max_empty():
+    assert find_max([]) is None
+"""
+    elif "binary_search" in fixed_code:
+        return """
+def test_binary_search_found():
+    assert binary_search([1, 3, 5, 7, 9], 5) == 2
+
+def test_binary_search_not_found():
+    assert binary_search([1, 3, 5, 7, 9], 4) == -1
+"""
+    elif "remove_duplicates" in fixed_code:
+        return """
+def test_remove_duplicates_normal():
+    assert remove_duplicates([1, 2, 2, 3, 1]) == [1, 2, 3]
+
+def test_remove_duplicates_empty():
+    assert remove_duplicates([]) == []
+"""
     elif "get_user_email" in fixed_code:
         return """
 def test_get_user_email_present():

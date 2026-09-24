@@ -43,10 +43,30 @@ def parse_python_ast(source_code: str) -> Dict[str, Any]:
     classes = []
     imports = []
     variables = set()
+    incomplete_functions = []
+    missing_returns = []
 
     for node in ast.walk(tree):
-        if isinstance(node, ast.FunctionDef) or isinstance(node, ast.AsyncFunctionDef):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             functions.append(node.name)
+            
+            # Check if function body is a stub (pass, Ellipsis, or raise NotImplementedError)
+            is_stub = False
+            if len(node.body) == 1:
+                first = node.body[0]
+                if isinstance(first, ast.Pass) or (isinstance(first, ast.Expr) and isinstance(first.value, ast.Constant) and first.value.value is Ellipsis):
+                    is_stub = True
+                elif isinstance(first, ast.Raise) and isinstance(first.exc, ast.Call) and getattr(first.exc.func, "id", "") == "NotImplementedError":
+                    is_stub = True
+            
+            if is_stub:
+                incomplete_functions.append(node.name)
+
+            # Check if non-void function might be missing a return
+            has_return = any(isinstance(b, ast.Return) for b in ast.walk(node))
+            if not has_return and not is_stub:
+                missing_returns.append(node.name)
+
         elif isinstance(node, ast.ClassDef):
             classes.append(node.name)
         elif isinstance(node, ast.Import):
@@ -63,10 +83,19 @@ def parse_python_ast(source_code: str) -> Dict[str, Any]:
     result["classes"] = sorted(list(set(classes)))
     result["imports"] = sorted(list(set(imports)))
     result["variables"] = sorted(list(variables))
+    result["incomplete_functions"] = incomplete_functions
+    result["missing_returns"] = missing_returns
     
     fn_str = ", ".join(result["functions"]) if result["functions"] else "None"
     cls_str = ", ".join(result["classes"]) if result["classes"] else "None"
-    result["summary"] = f"Valid syntax. Found {len(result['functions'])} function(s): [{fn_str}], {len(result['classes'])} class(es): [{cls_str}]."
+    
+    extra_note = ""
+    if incomplete_functions:
+        extra_note += f" [Needs Implementation/Filling: {', '.join(incomplete_functions)}]"
+    if missing_returns:
+        extra_note += f" [No Return Statement: {', '.join(missing_returns)}]"
+
+    result["summary"] = f"Valid syntax. Found {len(result['functions'])} function(s): [{fn_str}], {len(result['classes'])} class(es): [{cls_str}].{extra_note}"
 
     return result
 
