@@ -30,6 +30,7 @@ from utils.workspace import WorkspaceManager
 from language_adapters.detector import detect_project
 from language_adapters.python.adapter import PythonAdapter
 from language_adapters.java.adapter import JavaAdapter
+from agents.testing.agent import run_pytest_in_sandbox
 
 # Set page config
 st.set_page_config(
@@ -236,15 +237,22 @@ if debug_mode == "Single File":
         )
 
     with col2:
-        st.subheader("2. Stack Trace / Error Log")
+        st.subheader("2. Stack Trace / Error Log (Optional)")
         error_log = st.text_area(
-            "Paste error log or stack trace:",
+            "Paste error log or stack trace (Optional):",
             value=st.session_state.get("error_input", DEMO_EXAMPLES["ZeroDivisionError (Empty List)"]["error_log"]),
+            placeholder="Optional: Leave blank to auto-detect bugs across the entire code, execute tests, and fix all issues autonomously.",
             height=240,
             key="error_editor"
         )
 
-    start_btn = st.button("🚀 Start Autonomous Debugging", type="primary", use_container_width=True)
+    btn_col1, btn_col2 = st.columns([3, 1])
+    with btn_col1:
+        start_btn = st.button("🚀 Start Autonomous Debugging", type="primary", use_container_width=True)
+    with btn_col2:
+        if st.button("🧹 Clear Error Log", use_container_width=True):
+            st.session_state["error_input"] = ""
+            st.rerun()
 
 else:
     # --- UPLOAD PROJECT MODE ---
@@ -326,10 +334,17 @@ if start_btn:
 
         # Initialize execution state
         if debug_mode == "Single File":
+            effective_error_log = (error_log or "").strip()
+            if not effective_error_log:
+                # Pre-test source code in sandbox to auto-capture any runtime error/test failure
+                pre_test = run_pytest_in_sandbox(source_code, st.session_state.get("test_input", None))
+                if pre_test.get("status") == "FAIL" or pre_test.get("failed", 0) > 0 or pre_test.get("exit_code") != 0:
+                    effective_error_log = pre_test.get("output", "")
+
             initial_state = {
                 "input_mode": "single_file",
                 "source_code": source_code,
-                "error_log": error_log,
+                "error_log": effective_error_log,
                 "test_code": st.session_state.get("test_input", None),
                 "code_analysis": None,
                 "bug_investigation": None,

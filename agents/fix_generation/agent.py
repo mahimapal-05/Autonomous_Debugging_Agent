@@ -7,48 +7,84 @@ from typing import Dict, Any, List, Optional
 from utils.llm import call_llm, is_llm_available
 from agents.fix_generation.prompts import FIX_GENERATION_SYSTEM_PROMPT, FIX_GENERATION_USER_PROMPT
 
-def repair_name_error(source_code: str, error_log: str) -> Optional[str]:
+def repair_name_error(source_code: str, error_log: str = "") -> Optional[str]:
     """
     Detects and repairs NameError typos and undefined identifiers in Python source code.
     Example: `avrage` -> `average`
+    Works with error tracebacks or through static AST introspection when error_log is blank.
     """
-    if not source_code or not error_log:
+    if not source_code:
         return None
 
-    # Extract undefined name from error log
-    name_match = re.search(r"name ['\"]([a-zA-Z_]\w*)['\"] is not defined", error_log)
-    if not name_match:
-        name_match = re.search(r"cannot find symbol\s+symbol:\s+variable\s+([a-zA-Z_]\w*)", error_log)
-    
-    if not name_match:
-        return None
+    undefined_var = None
 
-    undefined_var = name_match.group(1)
+    # 1. Extract undefined name from error log if provided
+    if error_log:
+        name_match = re.search(r"name ['\"]([a-zA-Z_]\w*)['\"] is not defined", error_log)
+        if not name_match:
+            name_match = re.search(r"cannot find symbol\s+symbol:\s+variable\s+([a-zA-Z_]\w*)", error_log)
+        
+        if name_match:
+            undefined_var = name_match.group(1)
 
-    # Check if python already suggested a fix in the traceback (e.g. "Did you mean: 'average'?")
-    did_you_mean = re.search(r"Did you mean:\s*['\"]([a-zA-Z_]\w*)['\"]", error_log)
-    if did_you_mean:
-        suggested = did_you_mean.group(1)
-        fixed = re.sub(r'\b' + re.escape(undefined_var) + r'\b', suggested, source_code)
-        return fixed
+        did_you_mean = re.search(r"Did you mean:\s*['\"]([a-zA-Z_]\w*)['\"]", error_log)
+        if did_you_mean and undefined_var:
+            suggested = did_you_mean.group(1)
+            return re.sub(r'\b' + re.escape(undefined_var) + r'\b', suggested, source_code)
 
-    # Extract candidate identifiers defined in source code
-    all_tokens = re.findall(r'\b([a-zA-Z_]\w*)\b', source_code)
-    keywords = {
-        "for", "in", "range", "len", "print", "def", "return", "if", "else", "elif",
-        "while", "import", "from", "as", "class", "try", "except", "finally", "with",
-        "and", "or", "not", "is", "None", "True", "False"
-    }
-    candidate_names = list(set([t for t in all_tokens if t != undefined_var and t not in keywords]))
+    # 2. If no error log or not found in log, use AST scope analysis
+    if not undefined_var:
+        try:
+            tree = ast.parse(source_code)
+            defined = set(dir(__builtins__))
+            loaded = set()
+            for node in ast.walk(tree):
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    defined.add(node.name)
+                    for arg in node.args.args:
+                        defined.add(arg.arg)
+                elif isinstance(node, ast.ClassDef):
+                    defined.add(node.name)
+                elif isinstance(node, ast.Name):
+                    if isinstance(node.ctx, ast.Store):
+                        defined.add(node.id)
+                    elif isinstance(node.ctx, ast.Load):
+                        loaded.add(node.id)
+                elif isinstance(node, ast.Import):
+                    for alias in node.names:
+                        defined.add(alias.asname or alias.name)
+                elif isinstance(node, ast.ImportFrom):
+                    for alias in node.names:
+                        defined.add(alias.asname or alias.name)
+            
+            undefined_candidates = loaded - defined
+            if undefined_candidates:
+                for cand in undefined_candidates:
+                    valid_names = [d for d in defined if len(d) > 2 and not d.startswith("__")]
+                    matches = difflib.get_close_matches(cand, valid_names, n=1, cutoff=0.45)
+                    if matches:
+                        suggested = matches[0]
+                        return re.sub(r'\b' + re.escape(cand) + r'\b', suggested, source_code)
+        except Exception:
+            pass
 
-    # Find closest match via difflib
-    matches = difflib.get_close_matches(undefined_var, candidate_names, n=1, cutoff=0.45)
-    if matches:
-        suggested = matches[0]
-        fixed = re.sub(r'\b' + re.escape(undefined_var) + r'\b', suggested, source_code)
-        return fixed
+    if undefined_var:
+        all_tokens = re.findall(r'\b([a-zA-Z_]\w*)\b', source_code)
+        keywords = {
+            "for", "in", "range", "len", "print", "def", "return", "if", "else", "elif",
+            "while", "import", "from", "as", "class", "try", "except", "finally", "with",
+            "and", "or", "not", "is", "None", "True", "False"
+        }
+        candidate_names = list(set([t for t in all_tokens if t != undefined_var and t not in keywords]))
+
+        matches = difflib.get_close_matches(undefined_var, candidate_names, n=1, cutoff=0.45)
+        if matches:
+            suggested = matches[0]
+            fixed = re.sub(r'\b' + re.escape(undefined_var) + r'\b', suggested, source_code)
+            return fixed
 
     return None
+
 
 
 def repair_python_syntax(source_code: str, error_log: str = "") -> Optional[str]:
