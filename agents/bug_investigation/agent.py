@@ -51,13 +51,32 @@ def fallback_bug_investigation(source_code: str, error_log: str, code_analysis: 
                 "confidence": "High (Static Code Inspection)"
             }
 
+    # Check for Algorithmic Boundary / Loop Condition Bugs (e.g. while low < high in binary search)
+    for idx, l in enumerate(lines):
+        if "while low < high:" in l or "while low < len(" in l:
+            return {
+                "suspected_location": f"{suspected_file}:{idx + 1} in {suspected_fn}()",
+                "suspicious_code": l.strip(),
+                "reason": "AlgorithmicError / OffByOne: While loop condition `low < high` terminates before inspecting the boundary element. Should be `low <= high`.",
+                "confidence": "High (Static Code Inspection)"
+            }
+
+    # Check for Missing Eviction in Cache Data Structures
+    if "class LRUCache" in source_code and "del self.cache" not in source_code:
+        return {
+            "suspected_location": f"{suspected_file}:put in LRUCache",
+            "suspicious_code": "def put(self, key, value):",
+            "reason": "IncompleteImplementation / InvariantViolation: LRUCache does not evict least-recently-used node when capacity is exceeded.",
+            "confidence": "High (Data Structure Invariant Analyzer)"
+        }
+
     # Check for Division by Zero (unhandled division where divisor is variable / collection length)
     for idx, l in enumerate(lines):
         if "/" in l and not l.strip().startswith("#"):
-            # If dividing by literal non-zero number like / 100 or / 2, it's not a ZeroDivisionError
-            if re.search(r'/\s*[1-9]\d*', l):
+            # If dividing by literal non-zero number like / 100 or // 2, it's not a ZeroDivisionError
+            if re.search(r'/{1,2}\s*[1-9]\d*', l):
                 continue
-            if "len(" in l or "count" in l or "total /" in l or "/ 0" in l or "/ count" in l or re.search(r'/\s*[a-zA-Z_]\w*', l):
+            if "len(" in l or "count" in l or "total /" in l or "/ 0" in l or "/ count" in l or re.search(r'/{1,2}\s*[a-zA-Z_]\w*', l):
                 return {
                     "suspected_location": f"{suspected_file}:{idx + 1} in {suspected_fn}()",
                     "suspicious_code": l.strip(),

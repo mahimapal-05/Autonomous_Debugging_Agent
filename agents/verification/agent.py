@@ -17,15 +17,20 @@ def evaluate_verification_agent(state: Dict[str, Any]) -> Dict[str, Any]:
     test_status = test_results.get("status", "FAIL")
     failed_count = test_results.get("failed", 0)
 
+    autopsy = test_results.get("autopsy") or {}
+    failing_test = autopsy.get("failed_test_name")
+    fail_reason = autopsy.get("failure_reason") or test_results.get("output", "Unknown error")[:300]
+
     # Base rule-based decision
     if test_status == "PASS" and failed_count == 0:
         verified = True
         status = "VERIFIED"
-        default_reason = "All automated unit tests/builds passed cleanly and the original error condition was eliminated."
+        default_reason = f"All automated unit tests ({test_results.get('tests_run', 0)} assertions) passed cleanly across all test tiers with 0 errors."
     else:
         verified = False
         status = "FAILED"
-        default_reason = f"Execution failed ({failed_count} test/build error(s)). Output: {test_results.get('output', 'Unknown error')[:200]}"
+        test_prefix = f"Test '{failing_test}' failed: " if failing_test else ""
+        default_reason = f"Execution failed ({failed_count} error(s)). {test_prefix}{fail_reason}"
 
     # LLM reasoning enhancement if available
     if is_llm_available():

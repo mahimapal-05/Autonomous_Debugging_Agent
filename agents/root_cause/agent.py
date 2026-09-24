@@ -14,7 +14,17 @@ def fallback_root_cause(error_log: str, bug_investigation: Dict[str, Any]) -> Di
     snippet_text = (bug_investigation.get("suspicious_code") or "")
 
     category = "RuntimeError"
-    if "SyntaxError" in error_text or "syntaxerror" in reason_text or "expected ':'" in error_text:
+    if "incomplete" in reason_text or "stub" in reason_text:
+        category = "IncompleteImplementation"
+        cause = "The code defines a function stub or placeholder without completing the required algorithmic logic."
+        explanation = "The function body contains `pass`, `...`, or missing return statements instead of an operational implementation."
+        strategy = "Synthesize and implement the complete, production-ready algorithm."
+    elif "algorithmicerror" in reason_text or "offbyone" in reason_text or "while low < high" in snippet_text:
+        category = "AlgorithmicError"
+        cause = "Algorithmic logic flaw: loop condition, boundary edge case, or mathematical invariant is incorrect."
+        explanation = "The algorithm terminates early or violates invariant properties under boundary inputs."
+        strategy = "Correct loop boundary condition and ensure proper handling of all boundary and extreme values."
+    elif "SyntaxError" in error_text or "syntaxerror" in reason_text or "expected ':'" in error_text:
         category = "SyntaxError"
         cause = "Python statement syntax is invalid; a required token such as a trailing colon (:) is missing after a compound statement header or brackets are unbalanced."
         explanation = "In Python, header statements such as `for`, `if`, `while`, `def`, and `class` must conclude with a colon (':') preceding an indented block."

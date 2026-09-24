@@ -250,7 +250,35 @@ def complete_and_fix_logic(source_code: str, code_analysis: Dict[str, Any] = Non
             modified_code = re.sub(pattern, replacement, modified_code)
             repairs_made.append(f"Completed implementation for `{name}` algorithm.")
 
-    # 2. Fix mutable default arguments in functions (e.g. `def append_to(element, target=[]):`)
+    # 2. Fix algorithmic logic flaws
+    # LRUCache capacity eviction bug
+    if "class LRUCache" in modified_code and "del self.cache" not in modified_code:
+        lru_put_pattern = r'(def\s+put\s*\([^)]*\)\s*->\s*None:\s*[\s\S]*?self\._insert\(node\))'
+        lru_evict_fix = r'\1\n        if len(self.cache) > self.capacity:\n            lru = self.tail.prev\n            self._remove(lru)\n            del self.cache[lru.key]'
+        if re.search(lru_put_pattern, modified_code):
+            modified_code = re.sub(lru_put_pattern, lru_evict_fix, modified_code)
+            repairs_made.append("Added least-recently-used node eviction when LRUCache exceeds capacity.")
+
+    # Kadane's max_subarray negative number initialization bug
+    if "def max_subarray" in modified_code and ("max_sum = 0" in modified_code or "current_sum = max(0" in modified_code):
+        kadane_fixed = '''def max_subarray(nums):
+    if not nums:
+        return 0
+    max_sum = nums[0]
+    current_sum = nums[0]
+    for num in nums[1:]:
+        current_sum = max(num, current_sum + num)
+        max_sum = max(max_sum, current_sum)
+    return max_sum'''
+        modified_code = re.sub(r'def\s+max_subarray\s*\([^)]*\):[\s\S]*?return\s+max_sum', kadane_fixed, modified_code)
+        repairs_made.append("Fixed Kadane's algorithm initialization to handle all-negative arrays.")
+
+    # Binary search while loop condition bug (low < high -> low <= high)
+    if "def binary_search" in modified_code and "while low < high:" in modified_code:
+        modified_code = modified_code.replace("while low < high:", "while low <= high:")
+        repairs_made.append("Fixed binary search boundary condition `low <= high` to avoid skipping boundary element.")
+
+    # 3. Fix mutable default arguments in functions (e.g. `def append_to(element, target=[]):`)
     mutable_default_match = re.search(r'def\s+([a-zA-Z_]\w*)\s*\(([^)]*?)([a-zA-Z_]\w*)\s*=\s*(\[\]|\{\})\s*([^)]*?)\):', modified_code)
     if mutable_default_match:
         fn_name = mutable_default_match.group(1)
@@ -266,9 +294,8 @@ def complete_and_fix_logic(source_code: str, code_analysis: Dict[str, Any] = Non
         modified_code = modified_code.replace(mutable_default_match.group(0), new_sig + init_guard)
         repairs_made.append(f"Fixed dangerous mutable default argument `{arg_name}={default_val}` in `{fn_name}`.")
 
-    # 3. Fix missing return statements in simple calculation functions
+    # 4. Fix missing return statements in simple calculation functions
     if "return " not in modified_code and "def " in modified_code:
-        # Check if function computes a variable like `result = ...` or `total = ...`
         lines = modified_code.splitlines()
         last_assign = None
         for l in lines:

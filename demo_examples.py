@@ -87,6 +87,113 @@ KeyError: 'email\'''',
     assert get_user_email({"name": "Alice", "email": "alice@example.com"}) == "alice@example.com"
     assert get_user_email({"name": "Bob"}) is None or get_user_email({"name": "Bob"}) == ""
 '''
+    },
+
+    "🔥 LRU Cache (Complex OOP Data Structure)": {
+        "title": "LRU Cache (Capacity & Node Eviction Bug)",
+        "code": '''class Node:
+    def __init__(self, key=0, val=0):
+        self.key = key
+        self.val = val
+        self.prev = None
+        self.next = None
+
+class LRUCache:
+    def __init__(self, capacity: int):
+        self.capacity = capacity
+        self.cache = {}
+        self.head = Node()
+        self.tail = Node()
+        self.head.next = self.tail
+        self.tail.prev = self.head
+
+    def _remove(self, node):
+        prev = node.prev
+        nxt = node.next
+        prev.next = nxt
+        nxt.prev = prev
+
+    def _insert(self, node):
+        nxt = self.head.next
+        self.head.next = node
+        node.prev = self.head
+        node.next = nxt
+        nxt.prev = node
+
+    def get(self, key: int) -> int:
+        if key in self.cache:
+            node = self.cache[key]
+            self._remove(node)
+            self._insert(node)
+            return node.val
+        return -1
+
+    def put(self, key: int, value: int) -> None:
+        if key in self.cache:
+            self._remove(self.cache[key])
+        node = Node(key, value)
+        self.cache[key] = node
+        self._insert(node)
+        # Bug: Does not evict the least recently used node when capacity exceeded!
+''',
+        "error_log": "",
+        "test_code": '''def test_lru_cache():
+    lru = LRUCache(2)
+    lru.put(1, 1)
+    lru.put(2, 2)
+    assert lru.get(1) == 1
+    lru.put(3, 3) # evicts key 2
+    assert lru.get(2) == -1
+    lru.put(4, 4) # evicts key 1
+    assert lru.get(1) == -1
+    assert lru.get(3) == 3
+    assert lru.get(4) == 4
+'''
+    },
+
+    "🔥 Kadane's Algorithm (Max Subarray with Negative Numbers)": {
+        "title": "Max Subarray Sum (All Negative Edge Case)",
+        "code": '''def max_subarray(nums):
+    # Flawed initialization: fails when all numbers are negative!
+    max_sum = 0
+    current_sum = 0
+    for num in nums:
+        current_sum = max(0, current_sum + num)
+        max_sum = max(max_sum, current_sum)
+    return max_sum
+''',
+        "error_log": "",
+        "test_code": '''def test_max_subarray():
+    assert max_subarray([-2, 1, -3, 4, -1, 2, 1, -5, 4]) == 6
+    assert max_subarray([-1, -2, -3]) == -1
+    assert max_subarray([5]) == 5
+'''
+    },
+
+    "🔥 Binary Search (Off-By-One & Mid Overflow Bug)": {
+        "title": "Binary Search (Boundary & Empty Edge Cases)",
+        "code": '''def binary_search(arr, target):
+    # Bug: Off-by-one condition in while loop skips rightmost element
+    low = 0
+    high = len(arr) - 1
+    while low < high:
+        mid = (low + high) // 2
+        if arr[mid] == target:
+            return mid
+        elif arr[mid] < target:
+            low = mid + 1
+        else:
+            high = mid - 1
+    return -1
+''',
+        "error_log": "",
+        "test_code": '''def test_binary_search():
+    assert binary_search([1, 3, 5, 7, 9], 9) == 4
+    assert binary_search([1, 3, 5, 7, 9], 1) == 0
+    assert binary_search([1, 3, 5, 7, 9], 5) == 2
+    assert binary_search([1, 3, 5, 7, 9], 6) == -1
+    assert binary_search([], 3) == -1
+'''
     }
 }
 

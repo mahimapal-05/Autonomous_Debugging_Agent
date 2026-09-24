@@ -413,8 +413,17 @@ if start_btn:
                 c1, c2, c3, c4 = st.columns(4)
                 c1.metric("Mode", "Project" if ca.get("is_project") else "Single File")
                 c2.metric("Language", final_state.get("language", "python").capitalize())
-                c3.metric("Source Files", len(ca.get("source_files", [])))
-                c4.metric("Test Files", len(ca.get("test_files", [])))
+                c3.metric("Functions", len(ca.get("functions", [])))
+                c4.metric("Cyclomatic Complexity", ca.get("cyclomatic_complexity", 1))
+                
+                if ca.get("algorithmic_archetypes"):
+                    st.markdown(f"**Algorithmic Archetypes:** `{', '.join(ca.get('algorithmic_archetypes'))}`")
+                
+                if ca.get("semantic_issues"):
+                    st.warning("⚠️ **Semantic Anti-Patterns & Risk Indicators Detected:**")
+                    for issue in ca.get("semantic_issues"):
+                        st.markdown(f"- **[{issue.get('severity')}] {issue.get('type')}** ({issue.get('location')}): {issue.get('description')}")
+
                 st.markdown(f"**Summary:** {ca.get('summary')}")
                 st.json(ca)
 
@@ -446,12 +455,15 @@ if start_btn:
                     st.code(cf.get("fixed_code", ""), language=active_language)
 
             # 5. Testing Agent
-            with st.expander("🧪 5. Testing Agent Execution", expanded=True):
+            with st.expander("🧪 5. Testing Agent Execution (4-Tier Adversarial Matrix)", expanded=True):
                 tr = final_state.get("test_results", {})
                 tc1, tc2, tc3 = st.columns(3)
                 tc1.metric("Tests Executed", tr.get("tests_run", 0))
                 tc2.metric("Passed", tr.get("passed", 0))
                 tc3.metric("Failed", tr.get("failed", 0))
+                
+                if tr.get("autopsy"):
+                    st.error(f"❌ **Failing Test Autopsy:** {tr['autopsy'].get('failure_reason')}")
                 st.code(tr.get("output", ""), language="bash")
 
             # 6. Verification Agent
