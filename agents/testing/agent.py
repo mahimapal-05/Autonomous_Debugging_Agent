@@ -53,7 +53,53 @@ def generate_default_tests(fixed_code: str) -> str:
         return "def test_empty():\n    assert True\n"
 
     # 1. Check known high-level algorithmic patterns
-    if "calculate_average" in fixed_code:
+    if "lengthOfLongestSubstring" in fixed_code or "length_of_longest_substring" in fixed_code:
+        return """
+def test_longest_substring_canonical():
+    fn = lengthOfLongestSubstring if 'lengthOfLongestSubstring' in globals() else length_of_longest_substring
+    assert fn("abcabcbb") == 3
+    assert fn("bbbbb") == 1
+    assert fn("pwwkew") == 3
+
+def test_longest_substring_boundaries():
+    fn = lengthOfLongestSubstring if 'lengthOfLongestSubstring' in globals() else length_of_longest_substring
+    assert fn("") == 0
+    assert fn("a") == 1
+    assert fn("au") == 2
+
+def test_longest_substring_repeats():
+    fn = lengthOfLongestSubstring if 'lengthOfLongestSubstring' in globals() else length_of_longest_substring
+    assert fn("dvdf") == 3
+    assert fn("tmmzuxt") == 5
+"""
+    elif "two_sum" in fixed_code or "twoSum" in fixed_code:
+        return """
+def test_two_sum_standard():
+    fn = two_sum if 'two_sum' in globals() else twoSum
+    assert sorted(fn([2, 7, 11, 15], 9)) == [0, 1]
+    assert sorted(fn([3, 2, 4], 6)) == [1, 2]
+    assert sorted(fn([3, 3], 6)) == [0, 1]
+"""
+    elif "is_valid" in fixed_code or "isValid" in fixed_code:
+        return """
+def test_valid_parentheses():
+    fn = is_valid if 'is_valid' in globals() else isValid
+    assert fn("()") is True
+    assert fn("()[]{}") is True
+    assert fn("(]") is False
+    assert fn("([)]") is False
+    assert fn("{[]}") is True
+    assert fn("") is True
+"""
+    elif "max_profit" in fixed_code or "maxProfit" in fixed_code:
+        return """
+def test_max_profit():
+    fn = max_profit if 'max_profit' in globals() else maxProfit
+    assert fn([7, 1, 5, 3, 6, 4]) == 5
+    assert fn([7, 6, 4, 3, 1]) == 0
+    assert fn([]) == 0
+"""
+    elif "calculate_average" in fixed_code:
         return """
 def test_calculate_average_normal():
     assert calculate_average([10, 20, 30]) == 20.0
@@ -269,13 +315,30 @@ def run_pytest_in_sandbox(fixed_code: str, test_code: str = None) -> Dict[str, A
         clean_solution = fixed_code
         if clean_solution.startswith("```python"):
             clean_solution = clean_solution[9:]
-        if clean_solution.startswith("```"):
+        elif clean_solution.startswith("```"):
             clean_solution = clean_solution[3:]
         if clean_solution.endswith("```"):
             clean_solution = clean_solution[:-3]
 
+        # Add Solution class shim / standalone function exports for compatibility
+        shim_lines = []
+        try:
+            tree = ast.parse(clean_solution)
+            fns = [n.name for n in tree.body if isinstance(n, ast.FunctionDef)]
+            classes = [n.name for n in tree.body if isinstance(n, ast.ClassDef)]
+            if "Solution" not in classes and fns:
+                # Wrap top-level functions in a Solution class alias
+                shim_lines.append("\nclass Solution:")
+                for fn in fns:
+                    shim_lines.append(f"    def {fn}(self, *args, **kwargs):")
+                    shim_lines.append(f"        return {fn}(*args, **kwargs)")
+        except Exception:
+            pass
+
+        augmented_solution = clean_solution + "\n" + "\n".join(shim_lines)
+
         with open(solution_path, "w", encoding="utf-8") as f:
-            f.write(clean_solution)
+            f.write(augmented_solution)
 
         test_file_content = f"from solution import *\nimport pytest\nimport math\n\n{test_code}\n"
         with open(test_path, "w", encoding="utf-8") as f:

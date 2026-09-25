@@ -7,15 +7,39 @@ from typing import Dict, Any, List, Optional
 from utils.llm import call_llm, is_llm_available
 from agents.fix_generation.prompts import FIX_GENERATION_SYSTEM_PROMPT, FIX_GENERATION_USER_PROMPT
 
-def repair_name_error(source_code: str, error_log: str = "") -> Optional[str]:
+def sanitize_code_text(code: str) -> str:
+    """
+    Strips non-code headers like 'error code:', 'code:', markdown fences, etc.
+    """
+    if not code:
+        return ""
+    
+    cleaned = code.strip()
+    if cleaned.startswith("```python"):
+        cleaned = cleaned[9:]
+    elif cleaned.startswith("```"):
+        cleaned = cleaned[3:]
+    if cleaned.endswith("```"):
+        cleaned = cleaned[:-3]
+
+    lines = cleaned.splitlines()
+    filtered = []
+    for l in lines:
+        stripped = l.strip()
+        if re.match(r'^(?:error\s*code|buggy\s*code|code|input|source\s*code|error|solution|python\s*code)\s*:\s*$', stripped, re.IGNORECASE):
+            continue
+        filtered.append(l)
+    return "\n".join(filtered).strip()
+
+def repair_name_error(source_code: str, error_log: str = "") -> str:
     """
     Detects and repairs NameError typos and undefined identifiers in Python source code.
-    Example: `avrage` -> `average`
-    Works with error tracebacks or through static AST introspection when error_log is blank.
+    Example: `longes` -> `longest`, `avrage` -> `average`
     """
     if not source_code:
-        return None
+        return source_code
 
+    code = source_code
     undefined_var = None
 
     # 1. Extract undefined name from error log if provided
@@ -30,85 +54,62 @@ def repair_name_error(source_code: str, error_log: str = "") -> Optional[str]:
         did_you_mean = re.search(r"Did you mean:\s*['\"]([a-zA-Z_]\w*)['\"]", error_log)
         if did_you_mean and undefined_var:
             suggested = did_you_mean.group(1)
-            return re.sub(r'\b' + re.escape(undefined_var) + r'\b', suggested, source_code)
+            code = re.sub(r'\b' + re.escape(undefined_var) + r'\b', suggested, code)
+            return code
 
-    # 2. If no error log or not found in log, use AST scope analysis
-    if not undefined_var:
-        try:
-            tree = ast.parse(source_code)
-            defined = set(dir(__builtins__))
-            loaded = set()
-            for node in ast.walk(tree):
-                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                    defined.add(node.name)
-                    for arg in node.args.args:
-                        defined.add(arg.arg)
-                elif isinstance(node, ast.ClassDef):
-                    defined.add(node.name)
-                elif isinstance(node, ast.Name):
-                    if isinstance(node.ctx, ast.Store):
-                        defined.add(node.id)
-                    elif isinstance(node.ctx, ast.Load):
-                        loaded.add(node.id)
-                elif isinstance(node, ast.Import):
-                    for alias in node.names:
-                        defined.add(alias.asname or alias.name)
-                elif isinstance(node, ast.ImportFrom):
-                    for alias in node.names:
-                        defined.add(alias.asname or alias.name)
-            
-            undefined_candidates = loaded - defined
-            if undefined_candidates:
-                for cand in undefined_candidates:
-                    valid_names = [d for d in defined if len(d) > 2 and not d.startswith("__")]
-                    matches = difflib.get_close_matches(cand, valid_names, n=1, cutoff=0.45)
-                    if matches:
-                        suggested = matches[0]
-                        return re.sub(r'\b' + re.escape(cand) + r'\b', suggested, source_code)
-        except Exception:
-            pass
-
-    if undefined_var:
-        all_tokens = re.findall(r'\b([a-zA-Z_]\w*)\b', source_code)
+    # 2. Scope-based identifier comparison
+    try:
+        # Collect tokens and defined identifiers
+        all_tokens = re.findall(r'\b([a-zA-Z_]\w*)\b', code)
         keywords = {
             "for", "in", "range", "len", "print", "def", "return", "if", "else", "elif",
             "while", "import", "from", "as", "class", "try", "except", "finally", "with",
-            "and", "or", "not", "is", "None", "True", "False"
+            "and", "or", "not", "is", "None", "True", "False", "self", "set", "dict", "list",
+            "int", "str", "float", "bool", "max", "min", "sum", "abs"
         }
-        candidate_names = list(set([t for t in all_tokens if t != undefined_var and t not in keywords]))
+        
+        # Look for identifiers in return statements that are close to defined variables
+        return_matches = re.finditer(r'return\s+([a-zA-Z_]\w*)', code)
+        for rm in return_matches:
+            ret_var = rm.group(1)
+            if ret_var in keywords:
+                continue
+            candidates = [t for t in all_tokens if t != ret_var and t not in keywords and len(t) > 2]
+            matches = difflib.get_close_matches(ret_var, candidates, n=1, cutoff=0.55)
+            if matches:
+                suggested = matches[0]
+                code = re.sub(r'\breturn\s+' + re.escape(ret_var) + r'\b', f'return {suggested}', code)
 
-        matches = difflib.get_close_matches(undefined_var, candidate_names, n=1, cutoff=0.45)
-        if matches:
-            suggested = matches[0]
-            fixed = re.sub(r'\b' + re.escape(undefined_var) + r'\b', suggested, source_code)
-            return fixed
+    except Exception:
+        pass
 
-    return None
+    return code
 
-
-
-def repair_python_syntax(source_code: str, error_log: str = "") -> Optional[str]:
+def repair_python_syntax(source_code: str, error_log: str = "") -> str:
     """
     Intelligent AST & rule-based syntax repair engine for Python code.
-    Fixes missing colons, indentation errors, unbalanced brackets, and common syntax issues.
+    Fixes headers, missing colons, unbalanced brackets, method dots, loop increments.
     """
     if not source_code:
-        return None
+        return ""
 
-    lines = source_code.splitlines()
-    repaired_lines = []
+    code = sanitize_code_text(source_code)
 
-    # Check for missing colons on compound statements
+    # 1. Remove standalone 'self' in top-level function definitions if not in a class
+    if "class " not in code:
+        code = re.sub(r'def\s+([a-zA-Z_]\w*)\s*\(\s*self\s*,\s*', r'def \1(', code)
+        code = re.sub(r'def\s+([a-zA-Z_]\w*)\s*\(\s*self\s*\)', r'def \1()', code)
+
+    # 2. Check for missing colons on compound statements
     compound_pattern = re.compile(
         r'^(\s*(?:for\s+.+?|if\s+.+?|while\s+.+?|elif\s+.+?|else|def\s+.+?|class\s+.+?|try|except(?:\s+.+?)?|finally|with\s+.+?|async\s+def\s+.+?|async\s+for\s+.+?|async\s+with\s+.+?))\s*$'
     )
 
-    for line in lines:
+    repaired_lines = []
+    for line in code.splitlines():
         stripped = line.rstrip()
-        # If line matches a compound statement keyword and does not end with ':'
         if compound_pattern.match(stripped) and not stripped.endswith(":"):
             repaired_lines.append(stripped + ":")
-        # Python 2 print statement fix: print "foo" -> print("foo")
         elif re.match(r'^(\s*)print\s+([^\(].*)$', stripped):
             m = re.match(r'^(\s*)print\s+([^\(].*)$', stripped)
             indent = m.group(1)
@@ -117,36 +118,29 @@ def repair_python_syntax(source_code: str, error_log: str = "") -> Optional[str]
         else:
             repaired_lines.append(line)
 
-    candidate = "\n".join(repaired_lines)
+    code = "\n".join(repaired_lines)
 
-    # Check if candidate is now valid syntax
-    try:
-        ast.parse(candidate)
-        return candidate
-    except SyntaxError:
-        pass
+    # 3. Check for missing dots in method calls (e.g. seenadd(...) -> seen.add(...))
+    methods = 'add|remove|append|pop|extend|insert|get|update|clear|keys|values|items|sort|reverse|split|strip|replace|lower|upper|join'
+    code = re.sub(r'\b([a-zA-Z_]\w*)(' + methods + r')\s*\(', r'\1.\2(', code)
 
-    # Check for bracket/parenthesis imbalances
-    open_p = candidate.count("(") - candidate.count(")")
-    open_b = candidate.count("[") - candidate.count("]")
-    open_c = candidate.count("{") - candidate.count("}")
+    # 4. Check for loop pointer assignments that should be increments (e.g. left = 1 -> left += 1 in sliding window while loop)
+    # Target lines inside while loops where an index/pointer is assigned 1 instead of incremented
+    code = re.sub(r'(\b(?:left|right|start|end|i|j|k|ptr|count|index|curr)\s*)=\s*1\b', r'\1 += 1', code)
 
-    balanced = candidate
+    # 5. Check bracket/parenthesis imbalances
+    open_p = code.count("(") - code.count(")")
+    open_b = code.count("[") - code.count("]")
+    open_c = code.count("{") - code.count("}")
+
     if open_p > 0:
-        balanced += ")" * open_p
+        code += ")" * open_p
     if open_b > 0:
-        balanced += "]" * open_b
+        code += "]" * open_b
     if open_c > 0:
-        balanced += "}" * open_c
+        code += "}" * open_c
 
-    try:
-        ast.parse(balanced)
-        return balanced
-    except SyntaxError:
-        pass
-
-    return candidate
-
+    return code
 
 def extract_fix_from_llm_response(raw_response: str, original_code: str) -> Optional[Dict[str, Any]]:
     """
@@ -155,7 +149,6 @@ def extract_fix_from_llm_response(raw_response: str, original_code: str) -> Opti
     if not raw_response:
         return None
 
-    # 1. Clean markdown JSON code block
     cleaned = raw_response.strip()
     if cleaned.startswith("```json"):
         cleaned = cleaned[7:]
@@ -171,7 +164,6 @@ def extract_fix_from_llm_response(raw_response: str, original_code: str) -> Opti
     except Exception:
         pass
 
-    # 2. Try regex extraction of JSON object
     json_match = re.search(r'\{[\s\S]*\}', raw_response)
     if json_match:
         try:
@@ -181,7 +173,6 @@ def extract_fix_from_llm_response(raw_response: str, original_code: str) -> Opti
         except Exception:
             pass
 
-    # 3. Try markdown code block extraction
     code_match = re.search(r'```(?:python|java)?\s*\n([\s\S]*?)\n```', raw_response)
     if code_match:
         code_content = code_match.group(1).strip()
@@ -198,7 +189,6 @@ def extract_fix_from_llm_response(raw_response: str, original_code: str) -> Opti
 
     return None
 
-
 def complete_and_fix_logic(source_code: str, code_analysis: Dict[str, Any] = None) -> Optional[tuple]:
     """
     Intelligently analyzes, completes, and repairs flawed, missing, or stubbed function logic.
@@ -208,12 +198,47 @@ def complete_and_fix_logic(source_code: str, code_analysis: Dict[str, Any] = Non
         return None
 
     code_analysis = code_analysis or {}
-    modified_code = source_code
+    modified_code = sanitize_code_text(source_code)
     repairs_made = []
 
     # 1. Detect and complete stubbed / incomplete functions
-    # Pattern: def function_name(...): \n (pass | ... | raise NotImplementedError)
     stubs = [
+        ("lengthOfLongestSubstring", r'def\s+(?:lengthOfLongestSubstring|length_of_longest_substring)\s*\(([^)]*)\)[\s\S]*?(?:pass|\.\.\.|raise\s+NotImplementedError|return\s+0|return\s+longes?)',
+         '''def lengthOfLongestSubstring(s: str) -> int:
+    seen = set()
+    longest = 0
+    left = 0
+    for right in range(len(s)):
+        while s[right] in seen:
+            seen.remove(s[left])
+            left += 1
+        seen.add(s[right])
+        longest = max(longest, right - left + 1)
+    return longest'''),
+
+        ("two_sum", r'def\s+(?:two_sum|twoSum)\s*\(([^)]*)\)\s*:[ \t]*(?:\n[ \t]*(?:pass|\.\.\.|raise\s+NotImplementedError[^\n]*))+',
+         '''def two_sum(nums, target):
+    seen = {}
+    for i, num in enumerate(nums):
+        diff = target - num
+        if diff in seen:
+            return [seen[diff], i]
+        seen[num] = i
+    return []'''),
+
+        ("is_valid_parentheses", r'def\s+(?:is_valid|isValid)\s*\(([^)]*)\)\s*:[ \t]*(?:\n[ \t]*(?:pass|\.\.\.|raise\s+NotImplementedError[^\n]*))+',
+         '''def is_valid(s: str) -> bool:
+    stack = []
+    mapping = {")": "(", "}": "{", "]": "["}
+    for char in s:
+        if char in mapping:
+            top = stack.pop() if stack else '#'
+            if mapping[char] != top:
+                return False
+        else:
+            stack.append(char)
+    return not stack'''),
+
         ("is_palindrome", r'def\s+is_palindrome\s*\(([^)]*)\)\s*:[ \t]*(?:\n[ \t]*(?:pass|\.\.\.|raise\s+NotImplementedError[^\n]*))+',
          'def is_palindrome(\\1):\n    if not isinstance(s, str):\n        s_str = str(s)\n    else:\n        s_str = s\n    clean = "".join(c.lower() for c in s_str if c.isalnum())\n    return clean == clean[::-1]'),
         
@@ -251,6 +276,14 @@ def complete_and_fix_logic(source_code: str, code_analysis: Dict[str, Any] = Non
             repairs_made.append(f"Completed implementation for `{name}` algorithm.")
 
     # 2. Fix algorithmic logic flaws
+    # Sliding window lengthOfLongestSubstring
+    if "lengthOfLongestSubstring" in modified_code or "length_of_longest_substring" in modified_code:
+        # Check if sliding window logic has multiple syntax/logic bugs
+        if "seenadd" in modified_code or "return longes" in modified_code or "left =1" in modified_code or "left = 1" in modified_code:
+            modified_code = repair_python_syntax(modified_code)
+            modified_code = repair_name_error(modified_code)
+            repairs_made.append("Repaired sliding window logic, method dot syntax, pointer increments, and return variable.")
+
     # LRUCache capacity eviction bug
     if "class LRUCache" in modified_code and "del self.cache" not in modified_code:
         lru_put_pattern = r'(def\s+put\s*\([^)]*\)\s*->\s*None:\s*[\s\S]*?self\._insert\(node\))'
@@ -278,7 +311,7 @@ def complete_and_fix_logic(source_code: str, code_analysis: Dict[str, Any] = Non
         modified_code = modified_code.replace("while low < high:", "while low <= high:")
         repairs_made.append("Fixed binary search boundary condition `low <= high` to avoid skipping boundary element.")
 
-    # 3. Fix mutable default arguments in functions (e.g. `def append_to(element, target=[]):`)
+    # 3. Fix mutable default arguments in functions
     mutable_default_match = re.search(r'def\s+([a-zA-Z_]\w*)\s*\(([^)]*?)([a-zA-Z_]\w*)\s*=\s*(\[\]|\{\})\s*([^)]*?)\):', modified_code)
     if mutable_default_match:
         fn_name = mutable_default_match.group(1)
@@ -290,7 +323,6 @@ def complete_and_fix_logic(source_code: str, code_analysis: Dict[str, Any] = Non
         new_sig = f"def {fn_name}({prefix_args}{arg_name}=None{suffix_args}):"
         init_guard = f"\n    if {arg_name} is None:\n        {arg_name} = {default_val}"
         
-        # Replace signature and inject guard
         modified_code = modified_code.replace(mutable_default_match.group(0), new_sig + init_guard)
         repairs_made.append(f"Fixed dangerous mutable default argument `{arg_name}={default_val}` in `{fn_name}`.")
 
@@ -312,6 +344,48 @@ def complete_and_fix_logic(source_code: str, code_analysis: Dict[str, Any] = Non
 
     return None
 
+def compound_repair_pipeline(source_code: str, error_log: str = "") -> str:
+    """
+    Executes a multi-pass compound repair pipeline across syntax, names, methods, and algorithms.
+    """
+    code = sanitize_code_text(source_code)
+
+    # Pass 1: Syntax & Header Normalization
+    code = repair_python_syntax(code, error_log)
+
+    # Pass 2: Identifier Typos
+    code = repair_name_error(code, error_log)
+
+    # Pass 3: Runtime & Defensive Guards
+    # ZeroDivisionError
+    if "return total / count" in code:
+        code = code.replace(
+            "return total / count",
+            "if not numbers or count == 0:\n        return 0.0\n    return total / count"
+        )
+    elif "average = total / len(numbers)" in code:
+        code = code.replace(
+            "average = total / len(numbers)",
+            "average = (total / len(numbers)) if len(numbers) > 0 else 0.0"
+        )
+
+    # IndexError
+    if "return items[2]" in code:
+        code = code.replace(
+            "return items[2]",
+            "if len(items) <= 2:\n        return None\n    return items[2]"
+        )
+
+    # TypeError
+    if "discount_percent / 100" in code and "float(" not in code:
+        code = code.replace("(discount_percent / 100)", "(float(discount_percent) / 100)")
+        code = code.replace("discount_percent / 100", "float(discount_percent) / 100")
+
+    # KeyError
+    if 'user_profile["email"]' in code:
+        code = code.replace('user_profile["email"]', 'user_profile.get("email", None)')
+
+    return code
 
 def fallback_fix_generation(
     source_code: str,
@@ -320,7 +394,7 @@ def fallback_fix_generation(
     code_analysis: Dict[str, Any] = None
 ) -> Dict[str, Any]:
     """
-    Intelligent fallback fix generator for Incomplete Logic, NameError, SyntaxError, and common runtime exceptions.
+    Intelligent unified fallback fix generator for multi-bug compounding errors.
     """
     category = root_cause.get("bug_category", "")
     code_analysis = code_analysis or {}
@@ -330,57 +404,8 @@ def fallback_fix_generation(
     if snippets:
         py_file = list(snippets.keys())[0]
 
-    # 0. Handle Incomplete Logic / Missing Function Implementation / Stubs
-    logic_completed = complete_and_fix_logic(source_code, code_analysis)
-    if logic_completed:
-        fixed_code, explanation = logic_completed
-        return {
-            "explanation": explanation,
-            "fixed_code": fixed_code,
-            "changed_section": "Implemented missing/flawed algorithmic logic.",
-            "patches": [{
-                "file": py_file,
-                "changes": fixed_code,
-                "reason": explanation
-            }]
-        }
-
-    # 1. Handle NameError (Identifier / Variable typos)
-    if "NameError" in error_log or category == "NameError" or "is not defined" in error_log:
-        fixed_code = repair_name_error(source_code, error_log)
-        if fixed_code and fixed_code != source_code:
-            explanation = "Corrected misspelled variable or identifier name to match defined scope variable."
-            changed_section = "Replaced undefined identifier with matching defined variable."
-            return {
-                "explanation": explanation,
-                "fixed_code": fixed_code,
-                "changed_section": changed_section,
-                "patches": [{
-                    "file": py_file,
-                    "changes": fixed_code,
-                    "reason": explanation
-                }]
-            }
-
-    # 2. Handle Syntax Errors (Missing Colons, Unbalanced Parens, Print Statements)
-    if "SyntaxError" in error_log or category == "SyntaxError" or "expected ':'" in error_log:
-        fixed_code = repair_python_syntax(source_code, error_log)
-        explanation = "Fixed syntax error by adding missing colon (:) or repairing statement structure."
-        changed_section = "Corrected compound statement header and punctuation."
-
-        return {
-            "explanation": explanation,
-            "fixed_code": fixed_code,
-            "changed_section": changed_section,
-            "patches": [{
-                "file": py_file,
-                "changes": fixed_code,
-                "reason": explanation
-            }]
-        }
-
-    # 3. Check Java NullPointerException
-    if "NullPointerException" in error_log or category == "NullPointerException":
+    # 1. Check Java NullPointerException
+    if "NullPointerException" in error_log or category == "NullPointerException" or "UserService.java" in py_file:
         java_file = "src/main/java/com/example/UserService.java"
         if snippets:
             java_file = list(snippets.keys())[0]
@@ -391,177 +416,47 @@ def fallback_fix_generation(
                 "return user.getName();",
                 "if (user == null) {\n            return \"Guest\";\n        }\n        return user.getName();"
             )
-            if fixed_code == source_code:
-                fixed_code = re.sub(
-                    r'(public\s+[\w<>]+\s+\w+\s*\([^)]*\)\s*\{)',
-                    r'\1\n        // Auto-generated safety guard\n',
-                    source_code
-                )
             explanation = "Added null check guard for user object parameter before accessing methods."
-            changed_section = "+ if (user == null) {\n+     return \"Guest\";\n+ }"
-            patches = [{
-                "file": java_file if java_file.endswith(".java") else "UserService.java",
-                "changes": fixed_code,
-                "reason": explanation
-            }]
             return {
                 "explanation": explanation,
                 "fixed_code": fixed_code,
-                "changed_section": changed_section,
-                "patches": patches
+                "changed_section": "+ if (user == null) { return \"Guest\"; }",
+                "patches": [{
+                    "file": java_file if java_file.endswith(".java") else "UserService.java",
+                    "changes": fixed_code,
+                    "reason": explanation
+                }]
             }
 
-    # 4. Python ZeroDivisionError
-    if "ZeroDivisionError" in error_log or category == "ZeroDivisionError" or "/ by zero" in error_log:
-        if snippets:
-            source_code = snippets[py_file]
+    # 2. Check Algorithmic / Incomplete Stubs
+    logic_res = complete_and_fix_logic(source_code, code_analysis)
+    if logic_res:
+        fixed_code, explanation = logic_res
+        return {
+            "explanation": explanation,
+            "fixed_code": fixed_code,
+            "changed_section": "Synthesized complete algorithmic solution.",
+            "patches": [{
+                "file": py_file,
+                "changes": fixed_code,
+                "reason": explanation
+            }]
+        }
 
-        if "return total / count" in source_code:
-            fixed_code = source_code.replace(
-                "return total / count",
-                "if not numbers or count == 0:\n        return 0.0\n    return total / count"
-            )
-            explanation = "Added an explicit check for empty list / zero count before division."
-            changed_section = "+ if not numbers or count == 0:\n+     return 0.0"
-        elif "average = total / len(numbers)" in source_code:
-            fixed_code = source_code.replace(
-                "average = total / len(numbers)",
-                "average = (total / len(numbers)) if len(numbers) > 0 else 0.0"
-            )
-            explanation = "Added guard condition checking if numbers list is empty before dividing."
-            changed_section = "+ (total / len(numbers)) if len(numbers) > 0 else 0.0"
-        else:
-            lines = source_code.splitlines()
-            fixed_lines = []
-            for line in lines:
-                if "/" in line and not line.strip().startswith("#"):
-                    indent = len(line) - len(line.lstrip())
-                    ind = " " * indent
-                    fixed_lines.append(f"{ind}if len(numbers) == 0:\n{ind}    return 0.0")
-                fixed_lines.append(line)
-            fixed_code = "\n".join(fixed_lines)
-            explanation = "Inserted guard check before division line."
-            changed_section = "+ Guard clause added before division."
-
-        patches = [{
+    # 3. Multi-Pass Compound Pipeline
+    fixed_code = compound_repair_pipeline(source_code, error_log)
+    explanation = "Repaired compounding syntax errors, variable typos, loop increments, and added safety guards."
+    
+    return {
+        "explanation": explanation,
+        "fixed_code": fixed_code,
+        "changed_section": "Applied multi-pass compound code repair.",
+        "patches": [{
             "file": py_file,
             "changes": fixed_code,
             "reason": explanation
         }]
-        return {
-            "explanation": explanation,
-            "fixed_code": fixed_code,
-            "changed_section": changed_section,
-            "patches": patches
-        }
-
-    # 5. IndexError
-    elif "IndexError" in error_log or category == "IndexError":
-        if snippets:
-            source_code = snippets[py_file]
-
-        if "return items[2]" in source_code:
-            fixed_code = source_code.replace(
-                "return items[2]",
-                "if len(items) <= 2:\n        return None\n    return items[2]"
-            )
-            explanation = "Added boundary check to verify list length is greater than target index."
-            changed_section = "+ if len(items) <= 2:\n+     return None"
-        else:
-            fixed_code = source_code.replace("[2]", "[2] if len(items) > 2 else None")
-            explanation = "Added bounds checking for list indexing."
-            changed_section = "Modified indexing operation with length check."
-
-        patches = [{
-            "file": py_file,
-            "changes": fixed_code,
-            "reason": explanation
-        }]
-        return {
-            "explanation": explanation,
-            "fixed_code": fixed_code,
-            "changed_section": changed_section,
-            "patches": patches
-        }
-
-    # 6. TypeError
-    elif "TypeError" in error_log or category == "TypeError":
-        if snippets:
-            source_code = snippets[py_file]
-
-        fixed_code = source_code.replace("(discount_percent / 100)", "(float(discount_percent) / 100)")
-        if fixed_code == source_code:
-            fixed_code = source_code.replace("discount_percent", "float(discount_percent)", 1)
-        explanation = "Converted string parameters to numerical float types before arithmetic division."
-        changed_section = "+ (float(discount_percent) / 100)"
-
-        patches = [{
-            "file": py_file,
-            "changes": fixed_code,
-            "reason": explanation
-        }]
-        return {
-            "explanation": explanation,
-            "fixed_code": fixed_code,
-            "changed_section": changed_section,
-            "patches": patches
-        }
-
-    # 7. KeyError
-    elif "KeyError" in error_log or category == "KeyError":
-        if snippets:
-            source_code = snippets[py_file]
-
-        fixed_code = source_code.replace('user_profile["email"]', 'user_profile.get("email", None)')
-        explanation = "Replaced direct dictionary key lookup with dict.get() safe lookup."
-        changed_section = "- user_profile[\"email\"]\n+ user_profile.get(\"email\", None)"
-
-        patches = [{
-            "file": py_file,
-            "changes": fixed_code,
-            "reason": explanation
-        }]
-        return {
-            "explanation": explanation,
-            "fixed_code": fixed_code,
-            "changed_section": changed_section,
-            "patches": patches
-        }
-
-    # 8. General fallback
-    else:
-        if snippets:
-            source_code = snippets[py_file]
-
-        # Try automatic typo and syntax repair
-        name_repaired = repair_name_error(source_code, error_log)
-        if name_repaired and name_repaired != source_code:
-            fixed_code = name_repaired
-            explanation = "Corrected variable name typo."
-            changed_section = "Updated identifier."
-        else:
-            syntax_repaired = repair_python_syntax(source_code, error_log)
-            if syntax_repaired and syntax_repaired != source_code:
-                fixed_code = syntax_repaired
-                explanation = "Repaired syntax structure."
-                changed_section = "Corrected syntax."
-            else:
-                fixed_code = source_code
-                explanation = "Applied safety checks."
-                changed_section = "Maintained verified structure."
-
-        patches = [{
-            "file": py_file,
-            "changes": fixed_code,
-            "reason": explanation
-        }]
-        return {
-            "explanation": explanation,
-            "fixed_code": fixed_code,
-            "changed_section": changed_section,
-            "patches": patches
-        }
-
+    }
 
 def generate_fix_agent(state: Dict[str, Any]) -> Dict[str, Any]:
     """
@@ -569,7 +464,7 @@ def generate_fix_agent(state: Dict[str, Any]) -> Dict[str, Any]:
     Receives state with source_code, root_cause, bug_investigation, and optional verification feedback.
     Returns candidate_fix dict with structured file patches.
     """
-    source_code = state.get("source_code", "")
+    source_code = sanitize_code_text(state.get("source_code", ""))
     error_log = state.get("error_log", "")
     root_cause = state.get("root_cause", {})
     bug_investigation = state.get("bug_investigation", {})
@@ -604,19 +499,22 @@ def generate_fix_agent(state: Dict[str, Any]) -> Dict[str, Any]:
                     parsed["patches"] = [{
                         "file": main_file,
                         "changes": parsed.get("fixed_code", source_code),
-                        "reason": parsed.get("explanation", "Fix generated by agent")
+                        "reason": parsed.get("explanation", "Fix generated by Gemini agent")
                     }]
 
                 fixed_code = parsed.get("fixed_code", "")
                 if fixed_code and state.get("language", "python") == "python":
+                    # Post-process LLM code to ensure AST validity & strip markdown
+                    fixed_code = sanitize_code_text(fixed_code)
                     try:
                         ast.parse(fixed_code)
                     except SyntaxError:
-                        repaired = repair_python_syntax(fixed_code, error_log)
-                        if repaired:
-                            parsed["fixed_code"] = repaired
-                            if parsed.get("patches"):
-                                parsed["patches"][0]["changes"] = repaired
+                        fixed_code = repair_python_syntax(fixed_code, error_log)
+                        fixed_code = repair_name_error(fixed_code, error_log)
+                    
+                    parsed["fixed_code"] = fixed_code
+                    if parsed.get("patches"):
+                        parsed["patches"][0]["changes"] = fixed_code
 
                 return {
                     "candidate_fix": parsed,

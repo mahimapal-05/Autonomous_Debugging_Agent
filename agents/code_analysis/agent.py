@@ -108,6 +108,34 @@ def detect_algorithmic_archetypes(source_code: str, tree: ast.AST) -> List[str]:
 
     return patterns
 
+def sanitize_source_code(source_code: str) -> str:
+    """
+    Cleans user inputs that contain conversational headers, label lines, or markdown fences.
+    Example: 'error code:\n\ndef foo(): ...' -> 'def foo(): ...'
+    """
+    if not source_code:
+        return ""
+
+    # Strip markdown block wrappers
+    cleaned = source_code.strip()
+    if cleaned.startswith("```python"):
+        cleaned = cleaned[9:]
+    elif cleaned.startswith("```"):
+        cleaned = cleaned[3:]
+    if cleaned.endswith("```"):
+        cleaned = cleaned[:-3]
+
+    lines = cleaned.splitlines()
+    clean_lines = []
+    for l in lines:
+        stripped = l.strip()
+        # Filter out label prefixes like "error code:", "buggy code:", "code:", "source:", "input:"
+        if re.match(r'^(?:error\s*code|buggy\s*code|code|input|source\s*code|error|solution|python\s*code)\s*:\s*$', stripped, re.IGNORECASE):
+            continue
+        clean_lines.append(l)
+
+    return "\n".join(clean_lines).strip()
+
 def parse_python_ast(source_code: str) -> Dict[str, Any]:
     """
     Deep Industrial-Grade AST Parser and Semantic Code Graph Analyzer.
@@ -130,8 +158,11 @@ def parse_python_ast(source_code: str) -> Dict[str, Any]:
         "summary": ""
     }
 
+    sanitized = sanitize_source_code(source_code)
+    target_code = sanitized if sanitized else source_code
+
     try:
-        tree = ast.parse(source_code)
+        tree = ast.parse(target_code)
     except SyntaxError as e:
         result["syntax_valid"] = False
         result["syntax_error"] = f"SyntaxError at line {e.lineno}, col {e.offset}: {e.msg}"
@@ -266,11 +297,13 @@ def analyze_code_agent(state: Dict[str, Any]) -> Dict[str, Any]:
         }
 
     # Single-file mode
-    source_code = state.get("source_code", "")
-    analysis_result = parse_python_ast(source_code)
+    raw_source = state.get("source_code", "")
+    sanitized_code = sanitize_source_code(raw_source) or raw_source
+    analysis_result = parse_python_ast(sanitized_code)
     analysis_result["is_project"] = False
 
     return {
+        "source_code": sanitized_code,
         "code_analysis": analysis_result
     }
 
