@@ -13,14 +13,10 @@ if ROOT_DIR not in sys.path:
 from demo_examples import DEMO_EXAMPLES, DEMO_PROJECT_PRESETS
 from utils.llm import (
     is_llm_available,
-    is_groq_available,
     is_gemini_available,
-    get_groq_api_key,
     get_gemini_api_key,
-    set_groq_api_key,
     set_gemini_api_key,
     set_llm_provider,
-    DEFAULT_GROQ_MODEL,
     DEFAULT_GEMINI_MODEL,
     get_preferred_provider
 )
@@ -79,70 +75,43 @@ init_db()
 # --- SIDEBAR ---
 with st.sidebar:
     st.image("https://img.icons8.com/isometric/96/bug.png", width=64)
-    st.markdown("### 🤖 Agent & LLM Engine")
+    st.markdown("### 🤖 Agent & Gemini Engine")
 
     # Check existing keys from environment
-    groq_active = is_groq_available()
     gemini_active = is_gemini_available()
     llm_active = is_llm_available()
 
-    if groq_active:
-        st.success(f"🟢 **Groq Active** (`{os.getenv('GROQ_MODEL', DEFAULT_GROQ_MODEL)}`)")
     if gemini_active:
         st.success(f"🟢 **Gemini Active** (`{os.getenv('GEMINI_MODEL', DEFAULT_GEMINI_MODEL)}`)")
-    if not llm_active:
-        st.warning("🟠 **Mock Mode** (No API Key)")
-        st.caption("Operating with intelligent rule-based fallbacks. Add a Groq or Gemini key below to enable full LLM generation.")
+    else:
+        st.warning("🟠 **Mock Mode** (No Gemini Key)")
+        st.caption("Operating with intelligent rule-based fallbacks. Add a Gemini API key below to enable full LLM generation.")
 
-    with st.expander("⚙️ LLM Provider & Keys", expanded=not llm_active):
-        provider_choice = st.selectbox(
-            "Primary Provider:",
-            options=["Auto", "Groq (Lightning Fast)", "Gemini", "Mock Mode"],
-            index=1 if groq_active else (2 if gemini_active else 0)
+    with st.expander("⚙️ Gemini Configuration & Key", expanded=not gemini_active):
+        mode_choice = st.selectbox(
+            "Engine Mode:",
+            options=["Google Gemini", "Mock / Fallback Mode"],
+            index=0 if gemini_active else 1
         )
         
-        # In-memory key input if not set in .env
-        input_groq_key = st.text_input(
-            "Groq API Key:",
-            value=get_groq_api_key() if get_groq_api_key() != "your_groq_api_key_here" else "",
-            type="password",
-            placeholder="gsk_..."
-        )
-        if input_groq_key:
-            set_groq_api_key(input_groq_key.strip())
-
         input_gemini_key = st.text_input(
             "Gemini API Key:",
             value=get_gemini_api_key() if get_gemini_api_key() != "your_gemini_api_key_here" else "",
             type="password",
-            placeholder="AIza..."
+            placeholder="AIzaSy..."
         )
         if input_gemini_key:
             set_gemini_api_key(input_gemini_key.strip())
 
-        if provider_choice.startswith("Groq"):
-            set_llm_provider("groq")
-            groq_model_choice = st.selectbox(
-                "Groq Model:",
-                options=[
-                    "llama-3.3-70b-versatile",
-                    "llama-3.1-70b-versatile",
-                    "llama-3.1-8b-instant",
-                    "mixtral-8x7b-32768",
-                    "deepseek-r1-distill-llama-70b"
-                ],
-                index=0
-            )
-            os.environ["GROQ_MODEL"] = groq_model_choice
-        elif provider_choice.startswith("Gemini"):
+        if mode_choice == "Google Gemini":
             set_llm_provider("gemini")
             gemini_model_choice = st.selectbox(
                 "Gemini Model:",
-                options=["gemini-2.5-flash", "gemini-1.5-flash", "gemini-1.5-pro"],
+                options=["gemini-2.5-flash", "gemini-2.5-pro", "gemini-1.5-flash", "gemini-1.5-pro"],
                 index=0
             )
             os.environ["GEMINI_MODEL"] = gemini_model_choice
-        elif provider_choice == "Mock Mode":
+        else:
             set_llm_provider("mock")
 
     st.divider()
@@ -200,7 +169,7 @@ with st.sidebar:
 
 # --- MAIN UI ---
 st.markdown('<div class="main-header">Autonomous Software Debugging Agent</div>', unsafe_allow_html=True)
-st.markdown('<div class="sub-header">Multi-Agent AI Pipeline (Groq / Gemini / Python / Java): Analyze → Reason → Fix → Test → Verify</div>', unsafe_allow_html=True)
+st.markdown('<div class="sub-header">Multi-Agent AI Pipeline (Google Gemini / Python / Java): Analyze → Reason → Fix → Test → Verify</div>', unsafe_allow_html=True)
 
 # Input Mode Selector
 if "debug_mode" not in st.session_state:

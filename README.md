@@ -1,13 +1,12 @@
 # Autonomous Software Debugging Agent (Multi-Language & ZIP Project Support)
 
-An agentic AI system built in Python using **LangGraph**, **Streamlit**, **Groq / Google Gemini APIs**, **Language Adapters (Python & Java)**, **PyTest**, **Maven/Gradle**, and **SQLite** that autonomously analyzes buggy single-file code or complete software projects, investigates stack traces/compilation errors, identifies root causes, generates targeted patches, executes automated unit test suites in an isolated sandbox, and verifies solutions.
+An agentic AI system built in Python using **LangGraph**, **Streamlit**, **Google Gemini APIs**, **Language Adapters (Python & Java)**, **PyTest**, **Maven/Gradle**, and **SQLite** that autonomously analyzes buggy single-file code or complete software projects, investigates stack traces/compilation errors, identifies root causes, generates targeted patches, executes automated unit test suites in an isolated sandbox, and verifies solutions.
 
 ---
 
-## 1. Supported LLM Engines & Providers
+## 1. Supported LLM Engines & Models
 
-- **Groq (Recommended - Ultra Low Latency)**: `llama-3.3-70b-versatile`, `llama-3.1-70b-versatile`, `llama-3.1-8b-instant`, `mixtral-8x7b-32768`, `deepseek-r1-distill-llama-70b`
-- **Google Gemini**: `gemini-2.5-flash`, `gemini-1.5-flash`, `gemini-1.5-pro`
+- **Google Gemini**: `gemini-2.5-flash` (Default), `gemini-2.5-pro`, `gemini-1.5-flash`, `gemini-1.5-pro`
 - **Mock Mode / Rule-Based Fallback**: Built-in AST analyzer and pattern recognition engine allowing full offline usage without API keys.
 
 ---
@@ -44,9 +43,9 @@ Language Adapter (PythonAdapter / JavaAdapter)
   ▼
 LangGraph Orchestration Engine (7-Agent Workflow)
   ├── 1. Code Analysis Agent
-  ├── 2. Bug Investigation Agent (Groq / Gemini / Rule-Based)
-  ├── 3. Root Cause Agent (Groq / Gemini / Rule-Based)
-  ├── 4. Fix Generation Agent (Groq / Gemini / Rule-Based)
+  ├── 2. Bug Investigation Agent (Gemini / Rule-Based)
+  ├── 3. Root Cause Agent (Gemini / Rule-Based)
+  ├── 4. Fix Generation Agent (Gemini / Rule-Based)
   ├── 5. Testing Agent (Executes Adapter build/tests in sandbox)
   ├── 6. Verification Agent (Evaluates test/build results)
   └── 7. Supervisor Agent (Retry loop control & report compiling)
@@ -74,7 +73,7 @@ Final Report & SQLite Session History
 ## 5. Technology Stack
 - **Languages Supported**: Python 3.10+, Java (JDK 11+)
 - **Orchestration**: LangGraph, LangChain Core
-- **LLM Engines**: Groq SDK (`groq`), Google GenAI (`google-genai` / `google-generativeai`)
+- **LLM Engines**: Google GenAI (`google-genai` / `google-generativeai`)
 - **Frontend UI**: Streamlit
 - **Build & Test Tools**: PyTest, Maven (`mvn`/`mvnw`), Gradle (`gradle`/`gradlew`), `javac`
 - **Database**: SQLite3 (`debug_history.db`)
@@ -104,13 +103,9 @@ Final Report & SQLite Session History
    ```
 
 4. **Configure Environment Variables**:
-   Copy `.env.example` to `.env` and add your API Keys:
+   Copy `.env.example` to `.env` and add your Gemini API Key:
    ```env
-   LLM_PROVIDER=groq
-   GROQ_API_KEY=gsk_your_groq_api_key_here
-   GROQ_MODEL=llama-3.3-70b-versatile
-
-   # Optional Gemini backup
+   LLM_PROVIDER=gemini
    GEMINI_API_KEY=your_gemini_api_key_here
    GEMINI_MODEL=gemini-2.5-flash
    ```
@@ -130,7 +125,7 @@ Final Report & SQLite Session History
 1. Push this repository to GitHub or GitLab.
 2. In the [Render Dashboard](https://dashboard.render.com), click **New +** → **Blueprint**.
 3. Connect your repository. Render will automatically read [`render.yaml`](file:///c:/Users/swaro/Desktop/Autonomous_Debugging_Agent-main/render.yaml) and configure the Docker Web Service.
-4. Under Environment Variables, provide your `GROQ_API_KEY` (and optional `GEMINI_API_KEY`).
+4. Under Environment Variables, provide your `GEMINI_API_KEY`.
 5. Click **Apply**. Render will build the container with Python 3.11, OpenJDK 17, and Maven pre-installed.
 
 ### Option 2: Manual Web Service on Render
@@ -139,9 +134,9 @@ Final Report & SQLite Session History
 3. Select **Docker** as the Environment.
 4. Set Region to your preferred location (e.g. `Oregon (US West)` or `Frankfurt`).
 5. Add Environment Variables:
-   - `GROQ_API_KEY`: `gsk_...`
-   - `LLM_PROVIDER`: `groq`
-   - `GROQ_MODEL`: `llama-3.3-70b-versatile`
+   - `GEMINI_API_KEY`: `AIzaSy...`
+   - `LLM_PROVIDER`: `gemini`
+   - `GEMINI_MODEL`: `gemini-2.5-flash`
 6. Click **Create Web Service**.
 
 ---
@@ -152,9 +147,9 @@ Final Report & SQLite Session History
 # Build Docker Image
 docker build -t autonomous-debugging-agent .
 
-# Run Container on Port 8501 with Groq API Key
+# Run Container on Port 8501 with Gemini API Key
 docker run -p 8501:8501 \
-  -e GROQ_API_KEY="gsk_your_key_here" \
-  -e LLM_PROVIDER="groq" \
+  -e GEMINI_API_KEY="your_gemini_api_key_here" \
+  -e LLM_PROVIDER="gemini" \
   autonomous-debugging-agent
 ```
