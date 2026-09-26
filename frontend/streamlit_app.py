@@ -463,12 +463,23 @@ with tab_debugger:
                             if step.get("error_message"):
                                 st.caption(f"Error caught: `{step.get('error_message')}`")
                     
+                    fix_code_block = cf.get("fixed_code", "")
                     if cf.get("patches"):
                         for p in cf.get("patches"):
                             st.markdown(f"**Patch File:** `{p.get('file')}`")
                             st.code(p.get("changes", ""), language=active_language)
+                            if not fix_code_block:
+                                fix_code_block = p.get("changes", "")
                     else:
-                        st.code(cf.get("fixed_code", ""), language=active_language)
+                        st.code(fix_code_block, language=active_language)
+
+                    if active_language == "python" and fix_code_block:
+                        if st.button("▶ Run Candidate Fix in Console", key="btn_run_fix_node4"):
+                            node4_res = execute_python_code(fix_code_block)
+                            if node4_res["success"]:
+                                st.success(f"Execution Output:\n{node4_res['stdout'] or '(Executed cleanly with 0 errors)'}")
+                            else:
+                                st.error(f"Error Caught:\n{node4_res['stderr']}")
 
                 # 5. Testing Agent
                 with st.expander("🧪 5. Testing Agent (4-Tier Adversarial Matrix & Sandbox)", expanded=True):
@@ -519,12 +530,64 @@ with tab_debugger:
 
                 with comp_col2:
                     st.markdown("#### ✅ Candidate Fix / Patches")
+                    fixed_code_to_run = ""
                     if report.get("patches"):
                         for p in report.get("patches"):
                             st.markdown(f"**{p.get('file')}**")
                             st.code(p.get("changes", ""), language=active_language)
+                            if not fixed_code_to_run:
+                                fixed_code_to_run = p.get("changes", "")
                     else:
-                        st.code(report.get("fixed_code", ""), language=active_language)
+                        fixed_code_to_run = report.get("fixed_code", "")
+                        st.code(fixed_code_to_run, language=active_language)
+
+                    # --- LIVE CODE RUNNER RIGHT ON SCREEN ---
+                    st.markdown("##### 🚀 Test & Run This Fix Live")
+                    run_btn_c1, run_btn_c2 = st.columns([1.5, 1])
+                    with run_btn_c1:
+                        run_fix_btn = st.button("▶ Run Fixed Code Live", type="primary", key="btn_run_fix_report", use_container_width=True)
+                    with run_btn_c2:
+                        open_in_interp = st.button("⚡ Open in Playground", key="btn_open_in_interp_report", use_container_width=True)
+
+                    if open_in_interp:
+                        st.session_state["interpreter_code"] = fixed_code_to_run
+                        st.info("Fixed code loaded into Live Interpreter (Tab 2)!")
+
+                    if run_fix_btn:
+                        if active_language == "python" and fixed_code_to_run:
+                            exec_res = execute_python_code(fixed_code_to_run)
+                            st.markdown("###### 🖥️ Live Output & Execution Result:")
+                            if exec_res["success"]:
+                                st.success(f"✅ **Execution Succeeded (0 Errors)** in `{exec_res['execution_time_ms']} ms`")
+                            else:
+                                st.error(f"❌ **{exec_res.get('error_type', 'ExecutionError')}**: {exec_res.get('error_message')}")
+
+                            if exec_res["stdout"]:
+                                st.code(exec_res["stdout"], language="text")
+                            elif exec_res["success"]:
+                                st.info("Code executed cleanly with 0 exceptions.")
+
+                            if exec_res["stderr"]:
+                                st.code(exec_res["stderr"], language="python")
+
+                            # Interactive Custom Test Call
+                            with st.expander("🧪 Run Custom Test Inputs / Assertions", expanded=True):
+                                default_call = ""
+                                if "isPalindrome" in fixed_code_to_run:
+                                    default_call = "print('isPalindrome(12321) ->', isPalindrome(12321))\nprint('isPalindrome(-101) ->', isPalindrome(-101))"
+                                elif "calculate_average" in fixed_code_to_run:
+                                    default_call = "print('calculate_average([10, 20, 30]) ->', calculate_average([10, 20, 30]))"
+                                
+                                custom_driver = st.text_area("Enter custom test calls to test the fix:", value=default_call, height=100, key="custom_call_area")
+                                if st.button("▶ Execute Custom Test", key="btn_run_custom_call"):
+                                    combined = f"{fixed_code_to_run}\n\n{custom_driver}"
+                                    custom_res = execute_python_code(combined)
+                                    if custom_res["success"]:
+                                        st.success(f"Output:\n{custom_res['stdout']}")
+                                    else:
+                                        st.error(f"Error:\n{custom_res['stderr']}")
+                        else:
+                            st.info("Live execution is active for Python scripts. (Project test suites run via testing adapter).")
 
                 # Save session to SQLite database
                 save_title = f"Fix {report.get('bug_category', 'Bug')} ({final_state.get('project_name', 'Project')})"
