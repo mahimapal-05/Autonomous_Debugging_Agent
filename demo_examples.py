@@ -4,6 +4,38 @@ Each example provides a buggy code snippet/project spec, a test snippet/trigger,
 """
 
 DEMO_EXAMPLES = {
+    "🔥 Palindrome Number (Logic Bug & Identifier Typo)": {
+        "title": "Palindrome Number (Compounding Typos & Inverted Loop)",
+        "code": '''def isPalindrome(x: int) -> bool:
+    if x < 0:
+        return False
+    reverse = 0
+    original = x
+    while x < 0:
+        digit = x % 10
+        reverse = reverse * 10 + digit
+        x = x // 10
+    return origial == revrse
+
+# Test execution
+print("isPalindrome(121) =", isPalindrome(121))
+print("isPalindrome(-121) =", isPalindrome(-121))
+''',
+        "error_log": '''Traceback (most recent call last):
+  File "main.py", line 12, in <module>
+    print("isPalindrome(121) =", isPalindrome(121))
+  File "main.py", line 10, in isPalindrome
+    return origial == revrse
+NameError: name 'origial' is not defined. Did you mean: 'original'?''',
+        "test_code": '''def test_isPalindrome():
+    assert isPalindrome(121) is True
+    assert isPalindrome(-121) is False
+    assert isPalindrome(10) is False
+    assert isPalindrome(0) is True
+    assert isPalindrome(12321) is True
+'''
+    },
+
     "ZeroDivisionError (Empty List)": {
         "title": "Calculate Average (Empty List)",
         "code": '''def calculate_average(numbers):
