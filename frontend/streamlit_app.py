@@ -34,7 +34,7 @@ st.set_page_config(
     page_title="Autonomous Debugging Agent & Live Python Interpreter",
     page_icon="🤖",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="collapsed"
 )
 
 # Custom CSS for rich dark modern aesthetic
